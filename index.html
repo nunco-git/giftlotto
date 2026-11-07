@@ -151,7 +151,7 @@ const params = new URLSearchParams(location.search);
 const EID = params.get('e'), VIEW = params.get('view');
 const baseUrl = () => location.origin + location.pathname;
 const checkinUrl = eid => baseUrl() + '?e=' + eid;
-/* 행사 당일(한국시간 00:00 ~ 24:00) 범위. purgeAt: 개인정보 문서의 자동 삭제(TTL) 기준 시각 */
+/* 행사 당일(한국시간 00:00 ~ 24:00) 범위. purgeAt: 개인정보 문서의 보관 만료 기준 시각(삭제는 관리자가 수동으로 수행) */
 const dayTimes = ds => { const s = new Date(ds + 'T00:00:00+09:00'); const e = new Date(s.getTime() + 864e5); return { eventDate: ds, startAt: s, endAt: e, purgeAt: e }; };
 const todayKST = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 const liveInfoCache = new Map();
@@ -311,7 +311,7 @@ async function attendeePage() {
       <b>개인정보 수집·이용 동의 (필수)</b><br>
       · 수집 항목: ${esc(F.map(f => f.label).join(', '))}<br>
       · 수집 목적: 경품 추첨 및 당첨자 확인, 경품 전달<br>
-      · 보유·이용 기간: 행사 당일(${esc(ev.eventDate || '')}) 한정이며, 행사 종료 후 <b>자동 삭제</b>됩니다(통상 24시간 이내).<br>
+      · 보유·이용 기간: 행사 당일(${esc(ev.eventDate || '')}) 한정이며, 행사 종료 후 <b>지체 없이 파기</b>됩니다.<br>
       ${shown.length ? `· 당첨 시 무대 화면에 ${esc(shown.join(', '))}이(가) 표시될 수 있습니다.<br>` : ''}
       · 동의를 거부할 수 있으며, 거부 시 경품 추첨 참여가 제한됩니다.
       <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:700;font-size:15px"><input type="checkbox" id="consent" ${consent ? 'checked' : ''} style="width:20px;height:20px"> 위 내용에 동의합니다</label></div>`;
@@ -472,14 +472,14 @@ async function manage(eid, u) {
     </div>
     <div class="card-box"><h2>🧓 현장 등록 (폰 없는 분)</h2>
       <div id="proxyFields" class="row"></div>
-      <label class="row" style="font-size:13px"><input type="checkbox" id="pfConsent"> 입력하는 분께 개인정보 수집·이용(행사 후 자동 삭제)에 대한 동의를 받았습니다</label>
+      <label class="row" style="font-size:13px"><input type="checkbox" id="pfConsent"> 입력하는 분께 개인정보 수집·이용(행사 후 파기)에 대한 동의를 받았습니다</label>
       <div class="row"><button class="pri" id="bProxy">무작위 번호 발급</button><input id="mNum" type="number" min="1" placeholder="종이 번호" style="width:110px"><button id="bManual">번호 직접 등록</button></div>
       <p class="mut">발급된 번호를 종이에 적어 전달하세요. 이미 나눠준 종이 번호는 직접 등록할 수 있습니다.</p>
     </div>
     <div class="card-box" id="cFields"><h2>📝 체크인 입력 항목</h2>
       <div id="fieldList"></div>
       <div class="row" style="margin-top:8px"><button class="sm" data-preset="소속">+ 소속</button><button class="sm" data-preset="이름">+ 이름</button><button class="sm" data-preset="연락처">+ 연락처</button><input id="fNew" placeholder="직접 입력 (예: 부서)" style="width:150px"><button class="sm pri" id="fAdd">추가</button></div>
-      <p class="mut">QR 체크인 시 참석자가 이 항목을 입력해야 번호가 발급됩니다. <b>표시</b>를 켠 항목만 무대 화면에 나오고, <b>마스킹</b>을 켜면 홍*동처럼 가려집니다. 입력된 정보는 본인과 관리자만 볼 수 있고, <b>행사 날짜가 끝나면 자동 삭제</b>됩니다(통상 24시간 이내, Firestore TTL 설정 필요). 즉시 지우려면 아래 버튼을 누르세요.</p>
+      <p class="mut">QR 체크인 시 참석자가 이 항목을 입력해야 번호가 발급됩니다. <b>표시</b>를 켠 항목만 무대 화면에 나오고, <b>마스킹</b>을 켜면 홍*동처럼 가려집니다. 입력된 정보는 본인과 관리자만 볼 수 있습니다. <b>행사가 끝나면 반드시 아래 [입력 정보 모두 삭제] 버튼으로 파기하세요.</b> (자동으로 삭제되지 않습니다)</p>
       <button class="sm bad" id="bWipe">입력 정보 모두 삭제</button>
     </div>
     <div class="card-box"><h2>👥 관리자</h2>
@@ -488,7 +488,7 @@ async function manage(eid, u) {
       <p class="mut">추가된 분은 이 주소로 접속해 해당 Google 계정으로 로그인하면 이 행사를 함께 관리할 수 있습니다. 관리자 추가·삭제는 행사를 만든 계정만 할 수 있습니다.</p>
     </div>
     <div class="card-box"><h2>⚙️ 추첨 설정</h2>
-      <div class="row"><label>행사 날짜 <input id="sDate" type="date"></label><span class="mut">참석자 체크인·참석확인은 이 날짜 하루(한국시간 00시~24시)에만 가능하고, 입력된 개인정보는 이 날이 끝나면 자동 삭제 대상이 됩니다.</span></div>
+      <div class="row"><label>행사 날짜 <input id="sDate" type="date"></label><span class="mut">참석자 체크인·참석확인은 이 날짜 하루(한국시간 00시~24시)에만 가능합니다. 행사가 끝나면 입력된 개인정보를 직접 삭제해야 합니다.</span></div>
       <div class="row"><label>추첨 대상</label>
         <label><input type="radio" name="mode" value="all" checked> 체크인 전체</label>
         <label><input type="radio" name="mode" value="present"> 참석 확인 명단</label></div>
@@ -522,8 +522,11 @@ async function manage(eid, u) {
     $('#pRound').textContent = p.round; $('#pState').textContent = p.open ? '확인 중 🟢' : (p.round ? '마감됨' : '미시작');
     renderPrizes(); renderAdmins(); renderFields();
     const dw = $('#dateWarn');
-    dw.className = S.ev.startAt ? 'mut' : 'err';
-    dw.textContent = S.ev.startAt ? `체크인·참석확인은 ${S.ev.eventDate} 하루 동안만 가능합니다.` : '⚠ 행사 날짜가 없어 참석자 체크인이 막혀 있습니다. 아래 추첨 설정에서 행사 날짜를 지정하세요.';
+    const past = S.ev.endAt && Date.now() >= S.ev.endAt.toMillis();
+    dw.className = S.ev.startAt && !past ? 'mut' : 'err';
+    dw.textContent = !S.ev.startAt ? '⚠ 행사 날짜가 없어 참석자 체크인이 막혀 있습니다. 아래 추첨 설정에서 행사 날짜를 지정하세요.'
+      : past ? '⚠ 행사일이 지났습니다. 당첨 결과 엑셀을 저장한 뒤, 아래 [입력 정보 모두 삭제]로 개인정보를 파기하세요.'
+        : `체크인·참석확인은 ${S.ev.eventDate} 하루 동안만 가능합니다.`;
   }
   function pushStage() {
     if (!S.stage) return; const my = ++S.seq;
