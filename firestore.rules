@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function evPath(eid) { return /databases/$(database)/documents/events/$(eid); }
+    // 행사 생성자(adminUid) 또는 adminEmails에 등록된 Google 계정(이메일 인증됨)이 관리자
+    function isAdminData(d) {
+      return signedIn() && (
+        d.adminUid == request.auth.uid
+        || (request.auth.token.email_verified == true
+            && request.auth.token.email in d.get('adminEmails', []))
+      );
+    }
+    function isAdmin(eid) { return isAdminData(get(evPath(eid)).data); }
+
+    match /events/{eid} {
+      allow get: if signedIn();
+      allow list: if signedIn() && (
+        resource.data.adminUid == request.auth.uid
+        || (request.auth.token.email_verified == true
+            && request.auth.token.email in resource.data.adminEmails)
+      );
+      allow create: if signedIn() && request.resource.data.adminUid == request.auth.uid;
+      // 관리자 목록(adminEmails) 변경과 행사 삭제는 생성자만 가능
+      allow update: if isAdminData(resource.data)
+        && request.resource.data.adminUid == resource.data.adminUid
+        && (request.resource.data.get('adminEmails', []) == resource.data.get('adminEmails', [])
+            || resource.data.adminUid == request.auth.uid);
+      allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;
+
+      // 참석자별 번호 기록 (기기당 1회만 생성, 수정 불가)
+      match /users/{uid} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn() && request.auth.uid == uid
+          && get(evPath(eid)).data.checkinOpen == true;
+      }
+
+      // 경품번호 (존재 여부 확인을 위해 get은 로그인 사용자 모두 허용, 개인정보 없음)
+      match /tickets/{num} {
+        allow get: if signedIn();
+        allow list: if isAdmin(eid);
+
+        allow create: if signedIn() && num.matches('^[1-9][0-9]{0,5}$') && (
+          (
+            request.resource.data.uid == request.auth.uid
+            && request.resource.data.presentRound == 0
+            && request.resource.data.t == request.time
+            && !('proxy' in request.resource.data)
+            && getAfter(/databases/$(database)/documents/events/$(eid)/users/$(request.auth.uid)).data.number == int(num)
+            && get(evPath(eid)).data.checkinOpen == true
+          )
+          || isAdmin(eid)
+        );
+
+        allow update: if signedIn() && (
+          (
+            resource.data.uid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['presentRound'])
+            && get(evPath(eid)).data.presence.open == true
+            && request.resource.data.presentRound == get(evPath(eid)).data.presence.round
+          )
+          || isAdmin(eid)
+        );
+        allow delete: if isAdmin(eid);
+      }
+
+      // 당첨 결과 (본인 번호 문서만 조회 가능, 목록·쓰기는 관리자만)
+      match /wins/{num} {
+        allow get: if signedIn();
+        allow list, write: if isAdmin(eid);
+      }
+    }
+  }
+}

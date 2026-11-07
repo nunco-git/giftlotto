@@ -323,6 +323,9 @@ async function attendeePage() {
 let cleanups = [];
 function leave() { cleanups.forEach(f => { try { f(); } catch (e) { } }); cleanups = []; }
 
+function isAdminOf(ev, u) {
+  return ev.adminUid === u.uid || (u.emailVerified && (ev.adminEmails || []).includes((u.email || '').toLowerCase()));
+}
 function adminPage() {
   onAuthStateChanged(auth, u => {
     leave();
@@ -351,13 +354,18 @@ async function home(u) {
     if (!(max >= 1 && max <= 100000)) return toast('최대 인원은 1~100000');
     const ref = doc(collection(db, 'events'));
     try {
-      await setDoc(ref, { name, adminUid: u.uid, maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
+      await setDoc(ref, { name, adminUid: u.uid, adminEmails: [(u.email || '').toLowerCase()], maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
       location.hash = 'm=' + ref.id; manage(ref.id, u);
     } catch (e) { toast('생성 실패: ' + e.code); }
   };
   try {
-    const qs = await getDocs(query(collection(db, 'events'), where('adminUid', '==', u.uid)));
-    const L = qs.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.created?.seconds || 0) - (a.created?.seconds || 0));
+    const em = (u.email || '').toLowerCase();
+    const [q1, q2] = await Promise.all([
+      getDocs(query(collection(db, 'events'), where('adminUid', '==', u.uid))),
+      getDocs(query(collection(db, 'events'), where('adminEmails', 'array-contains', em)))
+    ]);
+    const mp = new Map(); [...q1.docs, ...q2.docs].forEach(d => mp.set(d.id, { id: d.id, ...d.data() }));
+    const L = [...mp.values()].sort((a, b) => (b.created?.seconds || 0) - (a.created?.seconds || 0));
     $('#evList').innerHTML = L.length ? L.map(e => `<div class="prow"><b>${esc(e.name)}</b><span class="tag">최대 ${e.maxCount}명</span><span class="grow"></span><button class="pri sm" data-id="${e.id}">열기</button></div>`).join('') : '아직 만든 행사가 없습니다.';
     $('#evList').onclick = ev => { const b = ev.target.closest('[data-id]'); if (b) { location.hash = 'm=' + b.dataset.id; manage(b.dataset.id, u); } };
   } catch (e) { $('#evList').textContent = '목록을 불러오지 못했습니다 (' + e.code + ')'; }
@@ -371,7 +379,7 @@ async function manage(eid, u) {
   const S = { ev: null, wins: new Map(), pool: new Set(), lastSnap: null, present: null, mode: 'all', drawing: false, stage: null, init: false };
   let first;
   try { first = await getDoc(evRef); } catch (e) { first = null; }
-  if (!first || !first.exists() || first.data().adminUid !== u.uid) {
+  if (!first || !first.exists() || !isAdminOf(first.data(), u)) {
     app.innerHTML = `<div class="login"><p>이 행사를 관리할 권한이 없거나 존재하지 않습니다.</p><button id="bH">행사 목록</button></div>`;
     $('#bH').onclick = () => { location.hash = ''; home(u); }; return;
   }
@@ -408,6 +416,11 @@ async function manage(eid, u) {
       <div class="row"><button class="pri" id="bProxy">무작위 번호 발급</button><input id="mNum" type="number" min="1" placeholder="종이 번호" style="width:110px"><button id="bManual">번호 직접 등록</button></div>
       <p class="mut">발급된 번호를 종이에 적어 전달하세요. 이미 나눠준 종이 번호는 직접 등록할 수 있습니다.</p>
     </div>
+    <div class="card-box"><h2>👥 관리자</h2>
+      <div id="adminList"></div>
+      <div class="row" id="adminAddRow" style="margin-top:8px"><input id="adminEmail" type="email" placeholder="추가할 관리자의 Google 이메일" style="flex:1;min-width:180px"><button class="pri" id="adminAdd">추가</button></div>
+      <p class="mut">추가된 분은 이 주소로 접속해 해당 Google 계정으로 로그인하면 이 행사를 함께 관리할 수 있습니다. 관리자 추가·삭제는 행사를 만든 계정만 할 수 있습니다.</p>
+    </div>
     <div class="card-box"><h2>⚙️ 추첨 설정</h2>
       <div class="row"><label>추첨 대상</label>
         <label><input type="radio" name="mode" value="all" checked> 체크인 전체</label>
@@ -438,8 +451,27 @@ async function manage(eid, u) {
     const ev = S.ev, p = ev.presence || { round: 0, open: false };
     $('#bTog').textContent = ev.checkinOpen ? '체크인 마감하기' : '체크인 다시 열기';
     $('#pRound').textContent = p.round; $('#pState').textContent = p.open ? '확인 중 🟢' : (p.round ? '마감됨' : '미시작');
-    renderPrizes();
+    renderPrizes(); renderAdmins();
   }
+  const myEmail = (u.email || '').toLowerCase();
+  function renderAdmins() {
+    const owner = S.ev.adminUid === u.uid, L = S.ev.adminEmails || [];
+    $('#adminList').innerHTML = L.length ? L.map(e => `<div class="prow"><span>${esc(e)}</span>${e === myEmail ? '<span class="tag">나</span>' : ''}<span class="grow"></span>${owner && e !== myEmail ? `<button class="sm bad" data-email="${esc(e)}">삭제</button>` : ''}</div>`).join('') : '<p class="mut">등록된 관리자가 없습니다.</p>';
+    $('#adminAddRow').style.display = owner ? 'flex' : 'none';
+  }
+  $('#adminAdd').onclick = async () => {
+    const e = $('#adminEmail').value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return toast('올바른 이메일을 입력하세요');
+    try {
+      await updateDoc(evRef, { adminEmails: [...new Set([myEmail, ...(S.ev.adminEmails || []), e])] });
+      $('#adminEmail').value = ''; toast('관리자를 추가했습니다');
+    } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  };
+  $('#adminList').onclick = async ev => {
+    const b = ev.target.closest('[data-email]'); if (!b || !confirm(`${b.dataset.email} 관리자를 삭제할까요?`)) return;
+    try { await updateDoc(evRef, { adminEmails: (S.ev.adminEmails || []).filter(x => x !== b.dataset.email) }); }
+    catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  };
   function nextPrize() { return (S.ev.prizes || []).find(p => !p.done); }
   function renderPrizes() {
     const L = S.ev.prizes || [];
