@@ -80,6 +80,9 @@ body.stage{min-height:100vh;overflow:hidden}
 .st-title{font-size:clamp(28px,5vw,64px);font-weight:800;color:#ffd666;margin-bottom:1vh}
 .st-sub{font-size:clamp(16px,2vw,28px);opacity:.85;margin-bottom:3vh}
 .cardsw{width:100%;max-height:72vh;overflow:auto}
+.ladder{width:min(96vw,1100px);max-height:70vh}
+.ladder text{font-family:inherit;text-anchor:middle;dominant-baseline:central;font-weight:800}
+.ladder .ball{transform-box:fill-box;transform-origin:center;animation:pop .5s}
 .cards{display:grid;gap:1.4vw;width:100%;justify-content:center}
 .cards.s1{grid-template-columns:repeat(auto-fit,minmax(220px,440px))}
 .cards.s2{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
@@ -228,14 +231,86 @@ function makeStage(root, getEv) {
       root.insertAdjacentHTML('beforeend', reserveHTML(live.reserve));
     })();
   }
+  /* ---- 사다리타기 연출 (10명 이하) ---- */
+  const COLS = 10, ROWS = 13, LX = c => 50 + c * 100, Y0 = 95, Y1 = 455, rowY = r => Y0 + (r + 1) * (Y1 - Y0) / (ROWS + 1);
+  const BALLC = ['#ff7875', '#ffa940', '#ffd666', '#95de64', '#5cdbd3', '#69c0ff', '#b37feb', '#ff85c0', '#d3f261', '#ffc069'];
+  let LD = null;
+  const useLadder = (live, n) => live && live.fx === 'ladder' && n >= 1 && n <= COLS;
+  function ladderDOM(title, sub) {
+    const rungs = []; for (let r = 0; r < ROWS; r++) { const row = []; let c = 0; while (c < COLS - 1) { if (Math.random() < 0.5) { row.push(c); c += 2; } else c++; } rungs.push(row); }
+    let g = '';
+    for (let c = 0; c < COLS; c++) g += `<line x1="${LX(c)}" y1="${Y0}" x2="${LX(c)}" y2="${Y1}" stroke="#8aa4ff" stroke-width="6" stroke-linecap="round"/>`;
+    rungs.forEach((row, r) => row.forEach(c => g += `<line x1="${LX(c)}" y1="${rowY(r)}" x2="${LX(c + 1)}" y2="${rowY(r)}" stroke="#8aa4ff" stroke-width="6" stroke-linecap="round"/>`));
+    for (let c = 0; c < COLS; c++) g += `<g class="tp" data-c="${c}"><circle cx="${LX(c)}" cy="48" r="32" fill="#1d2f66" stroke="#8aa4ff" stroke-width="4"/><text x="${LX(c)}" y="49" font-size="30" fill="#fff">${c + 1}</text></g>`;
+    for (let c = 0; c < COLS; c++) g += `<g class="bs" data-c="${c}"><circle cx="${LX(c)}" cy="520" r="44" fill="none" stroke="#5a6fa8" stroke-width="3" stroke-dasharray="7 7"/><text x="${LX(c)}" y="520" font-size="30" fill="#5a6fa8">?</text></g>`;
+    root.innerHTML = `<div class="st-title">${esc(title)}</div><div class="st-sub" id="lsub">${esc(sub)}</div><svg class="ladder" viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg">${g}<g id="lay"></g></svg>`;
+    LD = { rungs, svg: root.querySelector('svg'), id: null };
+  }
+  function ladderPath(sc) {
+    const pts = [[LX(sc), Y0]]; let c = sc;
+    LD.rungs.forEach((row, r) => {
+      const y = rowY(r);
+      if (row.includes(c)) { pts.push([LX(c), y], [LX(c + 1), y]); c++; }
+      else if (row.includes(c - 1)) { pts.push([LX(c), y], [LX(c - 1), y]); c--; }
+    });
+    pts.push([LX(c), Y1], [LX(c), 478]); return { pts, end: c };
+  }
+  const lsub = t => { const e = root.querySelector('#lsub'); if (e) e.textContent = t; };
+  function ladderRolling(live) {
+    clear(); ladderDOM(live.title, '추첨자를 고르는 중…');
+    const tps = [...root.querySelectorAll('.tp')];
+    timer = setInterval(() => { const k = randInt(0, COLS - 1); tps.forEach((g, i) => g.firstElementChild.setAttribute('fill', i === k ? '#ffd666' : '#1d2f66')); }, 110);
+    LD.id = live.id;
+  }
+  async function ladderReveal(live) {
+    clear(); const my = tok, nums = live.numbers, k = nums.length;
+    if (!LD || LD.id !== live.id || !root.contains(LD.svg)) ladderDOM(live.title, '');
+    root.querySelectorAll('.tp').forEach(g => g.firstElementChild.setAttribute('fill', '#1d2f66'));
+    const starts = Array.from({ length: COLS }, (_, i) => i); for (let i = COLS - 1; i > 0; i--) { const j = randInt(0, i); [starts[i], starts[j]] = [starts[j], starts[i]]; }
+    const lay = root.querySelector('#lay'), NS = 'http://www.w3.org/2000/svg';
+    const dur = k === 1 ? 3800 : Math.max(1100, Math.min(2600, 13000 / k));
+    const fs = DIGITS <= 3 ? 34 : DIGITS <= 4 ? 28 : DIGITS <= 5 ? 24 : 21;
+    const alive = () => my === tok && !destroyed;
+    for (let i = 0; i < k; i++) {
+      const sc = starts[i], col = BALLC[i % BALLC.length], { pts, end } = ladderPath(sc);
+      lsub(k === 1 ? `${sc + 1}번 사다리 선택!` : `${i + 1}번째 추첨 · ${sc + 1}번 사다리 선택!`);
+      const tp = root.querySelector(`.tp[data-c="${sc}"] circle`); tp.setAttribute('fill', col);
+      await sleep(700); if (!alive()) return;
+      const trail = document.createElementNS(NS, 'polyline'); trail.setAttribute('fill', 'none'); trail.setAttribute('stroke', col); trail.setAttribute('stroke-width', '10'); trail.setAttribute('stroke-linejoin', 'round'); trail.setAttribute('stroke-linecap', 'round'); trail.setAttribute('opacity', '.9');
+      const dot = document.createElementNS(NS, 'circle'); dot.setAttribute('r', '15'); dot.setAttribute('fill', col); dot.setAttribute('stroke', '#fff'); dot.setAttribute('stroke-width', '4');
+      lay.append(trail, dot);
+      const seg = [0]; for (let j = 1; j < pts.length; j++) seg.push(seg[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]));
+      const total = seg[seg.length - 1], t0 = performance.now();
+      await new Promise(res => {
+        const step = now => {
+          if (!alive()) return res();
+          const f = Math.min(1, (now - t0) / dur), d = total * f; let j = 1; while (j < seg.length - 1 && seg[j] < d) j++;
+          const a = pts[j - 1], b = pts[j], u = seg[j] === seg[j - 1] ? 1 : (d - seg[j - 1]) / (seg[j] - seg[j - 1]);
+          const x = a[0] + (b[0] - a[0]) * u, y = a[1] + (b[1] - a[1]) * u;
+          trail.setAttribute('points', pts.slice(0, j).concat([[x, y]]).map(q => q.join(',')).join(' ')); dot.setAttribute('cx', x); dot.setAttribute('cy', y);
+          f < 1 ? requestAnimationFrame(step) : res();
+        };
+        requestAnimationFrame(step);
+      });
+      if (!alive()) return;
+      dot.remove();
+      const bs = root.querySelector(`.bs[data-c="${end}"]`), info = live.info && live.info[i];
+      bs.innerHTML = `<g class="ball"><circle cx="${LX(end)}" cy="520" r="44" fill="${col}" stroke="#fff" stroke-width="4"/><text x="${LX(end)}" y="521" font-size="${fs}" fill="#1b2a52">${pad(nums[i])}</text></g>` +
+        (info ? `<text x="${LX(end)}" y="587" font-size="19" fill="#ffd666">${esc(info)}</text>` : '');
+      await sleep(k === 1 ? 600 : 350);
+    }
+    if (!alive()) return;
+    lsub('🎉 당첨을 축하합니다 🎉'); confetti();
+    root.insertAdjacentHTML('beforeend', reserveHTML(live.reserve));
+  }
   function update(live) {
     if (destroyed) return;
     const key = live ? live.id + ':' + live.phase : 'none';
     if (key === lastKey) return;
     lastKey = key; tok++;
     if (!live) return idle();
-    if (live.phase === 'rolling') { prevRolling = live.id; return rolling(live); }
-    if (live.instant || prevRolling !== live.id) showStatic(live); else reveal(live);
+    if (live.phase === 'rolling') { prevRolling = live.id; return useLadder(live, live.count) ? ladderRolling(live) : rolling(live); }
+    if (live.instant || prevRolling !== live.id) showStatic(live); else if (useLadder(live, live.numbers.length)) ladderReveal(live); else reveal(live);
     prevRolling = 0;
   }
   return { update, destroy() { destroyed = true; clear(); tok++; } };
@@ -442,6 +517,7 @@ async function manage(eid, u) {
   }
   S.ev = first.data(); MAX = S.ev.maxCount; DIGITS = String(MAX).length;
   const rollSec = () => +(localStorage.getItem('raffle_roll') || 4);
+  const fxMode = () => localStorage.getItem('raffle_fx') || 'ladder';
 
   app.innerHTML = `
   <div class="top"><button id="bBack">← 행사 목록</button><h1 id="evName"></h1><span class="grow"></span>
@@ -493,7 +569,8 @@ async function manage(eid, u) {
         <label><input type="radio" name="mode" value="all" checked> 체크인 전체</label>
         <label><input type="radio" name="mode" value="present"> 참석 확인 명단</label></div>
       <div class="row"><label>예비 당첨자 수 <input id="sRes" type="number" min="0" max="20" style="width:70px"></label>
-        <label>연출 시간(초) <input id="sRoll" type="number" min="1" max="15" style="width:70px"></label></div>
+        <label>연출 시간(초) <input id="sRoll" type="number" min="1" max="15" style="width:70px"></label>
+        <label>연출 방식 <select id="sFx"><option value="ladder">🪜 사다리타기 (10명 이하)</option><option value="roll">🎰 숫자 롤링</option></select></label></div>
       <div class="row"><button id="bLoad">명단 새로고침</button><span class="mut" id="poolInfo"></span></div>
     </div>
   </section></div></div>`;
@@ -501,7 +578,7 @@ async function manage(eid, u) {
   $('#bBack').onclick = () => { leave(); location.hash = ''; home(u); };
   $('#evName').textContent = S.ev.name;
   $('#ciUrl').textContent = checkinUrl(eid);
-  $('#sRoll').value = rollSec();
+  $('#sRoll').value = rollSec(); $('#sFx').value = fxMode();
   new QRCode($('#qr'), { text: checkinUrl(eid), width: 190, height: 190, correctLevel: QRCode.CorrectLevel.M });
   const cleanOverlay = () => { if (S.stage) { S.stage.destroy(); S.stage = null; } document.querySelectorAll('.overlay').forEach(o => o.remove()); if (document.fullscreenElement) document.exitFullscreen?.(); };
   cleanups.push(cleanOverlay);
@@ -671,7 +748,7 @@ async function manage(eid, u) {
       const winners = picks.slice(0, prize.count), reserve = picks.slice(prize.count);
       await getEntries(winners);
       const id = (S.ev.live?.id || 0) + 1;
-      await updateDoc(evRef, { live: { id, phase: 'rolling', title: prize.name, count: winners.length, t: Date.now() } });
+      await updateDoc(evRef, { live: { id, phase: 'rolling', fx: fxMode(), title: prize.name, count: winners.length, t: Date.now() } });
       await sleep(Math.max(1, rollSec()) * 1000 + Math.min(winners.length * 20, 2000));
       const ops = [];
       winners.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'won', order: i + 1, claimed: false, t: serverTimestamp() }]));
@@ -679,7 +756,7 @@ async function manage(eid, u) {
       for (let i = 0; i < ops.length; i += 400) { const b = writeBatch(db); ops.slice(i, i + 400).forEach(([r, d]) => b.set(r, d)); await b.commit(); }
       const infoArr = winners.map(n => infoStr(S.entries.get(n), true)), hasInfo = infoArr.some(Boolean);
       if (hasInfo) await setDoc(doc(db, 'events', eid, 'liveinfo', String(id)), { info: infoArr, expireAt: S.ev.purgeAt || new Date(Date.now() + 864e5), t: serverTimestamp() });
-      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', title: prize.name, numbers: winners, hasInfo, reserve, t: Date.now() } });
+      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', fx: fxMode(), title: prize.name, numbers: winners, hasInfo, reserve, t: Date.now() } });
     } catch (e) { toast(e.message || ('오류: ' + e.code)); }
     finally { S.drawing = false; renderPrizes(); }
   }
@@ -751,6 +828,7 @@ async function manage(eid, u) {
   };
   $('#bStageWin').onclick = () => window.open(baseUrl() + '?e=' + eid + '&view=screen', 'stage');
   $('#sRes').onchange = () => updateDoc(evRef, { reserveCount: Math.max(0, Math.min(20, Math.floor(+$('#sRes').value || 0))) });
+  $('#sFx').onchange = () => localStorage.setItem('raffle_fx', $('#sFx').value);
   $('#sRoll').onchange = () => localStorage.setItem('raffle_roll', String(Math.max(1, Math.min(15, +$('#sRoll').value || 4))));
   document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = () => {
     if (r.value === 'present' && !S.present) { toast('먼저 참석 재확인을 [마감 · 명단 확정] 해주세요'); document.querySelector('input[name=mode][value=all]').checked = true; S.mode = 'all'; }
