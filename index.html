@@ -467,7 +467,7 @@ async function manage(eid, u) {
     <div class="card-box"><h2>🙋 참석 재확인 (불참자 사전 제외)</h2>
       <div class="stat"><div><span class="mut">현재 차수</span><b id="pRound">0</b></div><div><span class="mut">확인 완료</span><b id="pCnt2">-</b></div><div><span class="mut">상태</span><b id="pState" style="font-size:16px">-</b></div></div>
       <div class="row"><button class="pri" id="bPStart">새 확인 시작</button><button id="bPEnd">마감 · 명단 확정</button></div>
-      <div class="row"><input id="pNum" type="number" min="1" placeholder="번호" style="width:110px"><button id="bPMark">번호로 참석 처리</button><span class="mut">폰 없는 분 대리 처리</span></div>
+      <div class="row"><input id="pNum" type="number" min="1" placeholder="번호" style="width:110px"><button id="bPMark">번호로 참석 처리</button><span class="mut">폰 없는 분은 한 번만 처리하면 이후 모든 차수에 자동 포함</span></div>
       <p class="mut">추첨 직전에 시작 → 참석자 폰의 [지금 자리에 있어요]를 누른 사람만 추첨 대상으로 확정할 수 있습니다.</p>
     </div>
     <div class="card-box"><h2>🧓 현장 등록 (폰 없는 분)</h2>
@@ -637,8 +637,9 @@ async function manage(eid, u) {
     try {
       const t = await getCountFromServer(tcol); $('#cIn').textContent = t.data().count.toLocaleString();
       const r = S.ev.presence?.round || 0;
-      if (r) { const c = await getCountFromServer(query(tcol, where('presentRound', '==', r))); $('#pCnt2').textContent = c.data().count.toLocaleString(); }
-      else $('#pCnt2').textContent = '-';
+      const fx = (await getCountFromServer(query(tcol, where('fixed', '==', true)))).data().count;
+      if (r) { const c = await getCountFromServer(query(tcol, where('presentRound', '==', r))); $('#pCnt2').textContent = (c.data().count + fx).toLocaleString(); }
+      else $('#pCnt2').textContent = fx ? `고정 ${fx}` : '-';
     } catch (e) { }
   }
   counts(); const iv = setInterval(counts, 15000); cleanups.push(() => clearInterval(iv));
@@ -649,8 +650,9 @@ async function manage(eid, u) {
     if (qs.docs.length) S.lastSnap = qs.docs[qs.docs.length - 1]; poolInfo();
   }
   async function loadPresent() {
-    const r = S.ev.presence?.round || 0; const qs = await getDocs(query(tcol, where('presentRound', '==', r)));
-    S.present = new Set(qs.docs.map(d => Number(d.id)));
+    const r = S.ev.presence?.round || 0;
+    const [qs, fq] = await Promise.all([getDocs(query(tcol, where('presentRound', '==', r))), getDocs(query(tcol, where('fixed', '==', true)))]);
+    S.present = new Set([...qs.docs, ...fq.docs].map(d => Number(d.id)));
   }
   async function eligible() {
     if (S.mode === 'present') { if (!S.present) throw new Error('참석 확인 명단이 없습니다. 먼저 [마감 · 명단 확정]을 눌러주세요.'); return [...S.present].filter(n => !S.wins.has(n)); }
@@ -769,12 +771,11 @@ async function manage(eid, u) {
     toast(`참석 확인 ${S.present.size}명 · 추첨 대상으로 설정되었습니다`);
   };
   $('#bPMark').onclick = async () => {
-    const n = Math.floor(+$('#pNum').value), r = S.ev.presence?.round || 0;
-    if (!r) return toast('먼저 참석 확인을 시작하세요');
+    const n = Math.floor(+$('#pNum').value);
     try {
       const s = await getDoc(doc(tcol, String(n))); if (!s.exists()) return toast('등록되지 않은 번호입니다');
-      await updateDoc(doc(tcol, String(n)), { presentRound: r }); if (S.present) S.present.add(n);
-      $('#pNum').value = ''; toast(`${pad(n)}번 참석 처리`); poolInfo(); counts();
+      await updateDoc(doc(tcol, String(n)), { fixed: true }); if (S.present) S.present.add(n);
+      $('#pNum').value = ''; toast(`${pad(n)}번 고정 참석 처리 (모든 차수에 포함)`); poolInfo(); counts();
     } catch (e) { toast('오류: ' + e.code); }
   };
 
@@ -782,7 +783,7 @@ async function manage(eid, u) {
   async function regTicket(n, f) {
     return runTransaction(db, async tx => {
       const r = doc(tcol, String(n)), s = await tx.get(r); if (s.exists()) return false;
-      tx.set(r, { uid: u.uid, t: serverTimestamp(), presentRound: 0, proxy: true });
+      tx.set(r, { uid: u.uid, t: serverTimestamp(), presentRound: 0, proxy: true, fixed: true });
       if (f && Object.keys(f).length) tx.set(doc(db, 'events', eid, 'entries', String(n)), { uid: u.uid, f, consent: true, t: serverTimestamp(), expireAt: S.ev.purgeAt || new Date(Date.now() + 864e5) });
       return true;
     });
