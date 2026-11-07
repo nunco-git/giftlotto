@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>스마트 경품추첨</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard","Malgun Gothic",system-ui,sans-serif;background:#f3f5f9;color:#1d2433;-webkit-text-size-adjust:100%}
+button{font:inherit;cursor:pointer;border:1px solid #cfd5e2;background:#fff;border-radius:8px;padding:8px 12px;color:#1d2433}
+button:hover{background:#f3f5fb}
+button.pri{background:#2f5bea;border-color:#2f5bea;color:#fff}
+button.pri:hover{background:#2449c4}
+button.bad{color:#d64545;border-color:#efc4c4}
+button.sm{padding:3px 8px;font-size:13px}
+button.big{width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:12px}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,select{font:inherit;padding:8px 10px;border:1px solid #cfd5e2;border-radius:8px;background:#fff;min-width:0}
+h1{font-size:20px;margin:0}
+h2{font-size:16px;margin:0 0 12px}
+.grow{flex:1}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.mut{color:#6b7385;font-size:13px}
+.err{color:#d64545;font-size:14px}
+.top{display:flex;gap:8px;align-items:center;padding:12px 20px;background:#14213d;color:#fff;position:sticky;top:0;z-index:5;flex-wrap:wrap}
+.top button{background:#22355f;color:#fff;border-color:#3b507f}
+.top button.pri{background:#f4b400;border-color:#f4b400;color:#14213d;font-weight:700}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:1000px){.grid{grid-template-columns:1.15fr 1fr}}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card-box{background:#fff;border:1px solid #e2e6ee;border-radius:14px;padding:16px}
+.prow,.wrow{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #eef0f5}
+.prow.done b{color:#8a92a5;text-decoration:line-through}
+.idx{width:24px;height:24px;border-radius:50%;background:#e8edf9;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+.tag{background:#eef1f8;border-radius:20px;padding:2px 10px;font-size:13px}
+.tag.ok{background:#dff5ea;color:#1e9e6a}
+.num{font-weight:800;font-size:17px;font-variant-numeric:tabular-nums;min-width:70px}
+.wrow.reserve .num{color:#8a6d00}
+.wrow.absent .num{text-decoration:line-through;color:#9aa1b2}
+.phead{display:flex;align-items:center;gap:8px;margin:14px 0 4px;font-weight:700}
+.qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.qrbox img,.qrbox canvas{max-width:100%}
+.url{font-size:12px;word-break:break-all;color:#6b7385}
+.stat{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.stat div{background:#f3f5fb;border-radius:10px;padding:8px 14px}
+.stat b{display:block;font-size:22px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#14213d;color:#fff;padding:10px 18px;border-radius:24px;z-index:100;max-width:90vw}
+.modal{position:fixed;inset:0;background:rgba(10,18,40,.7);display:flex;align-items:center;justify-content:center;z-index:60}
+.modal .box{background:#fff;border-radius:18px;padding:28px;text-align:center;min-width:280px}
+.modal .bignum{font-size:72px;font-weight:900;color:#2f5bea;font-variant-numeric:tabular-nums}
+.login{max-width:420px;margin:12vh auto;text-align:center;background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e6ee}
+.setup{max-width:760px;margin:30px auto;background:#fff;border-radius:16px;padding:24px;line-height:1.7}
+.setup code,.setup pre{background:#f3f5fb;border-radius:6px;padding:2px 6px}
+.setup pre{padding:12px;overflow:auto}
+/* phone */
+body.phone{background:linear-gradient(#14213d,#2a4380 60%,#f3f5f9 60%);min-height:100vh}
+.ph{max-width:460px;margin:0 auto;padding:20px 16px 60px}
+.ph-head{color:#fff;text-align:center;font-size:20px;font-weight:800;margin:8px 0 18px}
+.pcard{background:#fff;border-radius:16px;padding:20px;margin-bottom:14px;text-align:center;box-shadow:0 6px 18px rgba(20,33,61,.15)}
+.ticket{background:linear-gradient(135deg,#ffe58f,#f4b400);border-radius:18px;padding:22px;text-align:center;margin-bottom:14px;box-shadow:0 8px 22px rgba(0,0,0,.25);color:#14213d}
+.ticket .lbl{font-weight:700}
+.ticket .tno{font-size:72px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
+.ticket .hint{font-size:12px;opacity:.75}
+.win{background:#fff3c4;border:3px solid #f4b400;border-radius:16px;padding:18px;text-align:center;margin-bottom:14px;font-weight:700;animation:pop .6s}
+.win .t{font-size:26px;font-weight:900;color:#b25e00}
+.win.res{background:#eef1f8;border-color:#b9c2d9}
+.win.abs{background:#f1f1f1;border-color:#ccc;color:#777}
+.chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px}
+.chip{background:#eef1f8;border-radius:8px;padding:3px 9px;font-weight:700;font-variant-numeric:tabular-nums}
+.chip.me{background:#f4b400;color:#14213d}
+/* stage */
+.stagebg,body.stage{background:radial-gradient(circle at 50% 30%,#22386e,#0a1228 70%);color:#fff}
+body.stage{min-height:100vh;overflow:hidden}
+.stage-root{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3vh 3vw;text-align:center}
+.st-title{font-size:clamp(28px,5vw,64px);font-weight:800;color:#ffd666;margin-bottom:1vh}
+.st-sub{font-size:clamp(16px,2vw,28px);opacity:.85;margin-bottom:3vh}
+.cardsw{width:100%;max-height:72vh;overflow:auto}
+.cards{display:grid;gap:1.4vw;width:100%;justify-content:center}
+.cards.s1{grid-template-columns:repeat(auto-fit,minmax(220px,440px))}
+.cards.s2{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.cards.s3{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.cards.s4{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+.cards.s5{grid-template-columns:repeat(auto-fit,minmax(86px,1fr))}
+.cards .card{background:linear-gradient(#fff,#e3e9f8);color:#14213d;border-radius:16px;font-weight:900;font-variant-numeric:tabular-nums;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.s1 .card{font-size:clamp(48px,9vw,140px);padding:2vh 1vw}
+.s2 .card{font-size:clamp(32px,5vw,76px);padding:1.5vh .5vw}
+.s3 .card{font-size:clamp(24px,3.4vw,52px);padding:1vh .4vw}
+.s4 .card{font-size:clamp(20px,2.4vw,36px);padding:.8vh .3vw}
+.s5 .card{font-size:clamp(16px,1.8vw,26px);padding:.6vh .2vw}
+.card.locked{background:linear-gradient(#ffe58f,#ffc53d);animation:pop .4s}
+.st-reserve{margin-top:3vh;font-size:clamp(14px,1.8vw,26px);opacity:.9}
+.st-reserve b{color:#ffd666;margin:0 .4em;font-variant-numeric:tabular-nums}
+.st-qr{background:#fff;padding:16px;border-radius:16px;display:inline-block;margin:3vh 0 2vh}
+.overlay{position:fixed;inset:0;z-index:50;overflow:auto}
+.ov-close{position:fixed;top:12px;right:12px;z-index:51;background:rgba(255,255,255,.15);color:#fff;border-color:rgba(255,255,255,.4)}
+.conf{position:fixed;top:-20px;width:10px;height:14px;z-index:80;animation:fall 3.2s linear forwards;pointer-events:none}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg);opacity:.8}}
+@keyframes pop{0%{transform:scale(.8)}60%{transform:scale(1.08)}100%{transform:scale(1)}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc, onSnapshot, runTransaction, writeBatch, query, where, orderBy, startAfter, serverTimestamp, getCountFromServer } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ============================================================
+   ★ 여기에 Firebase 웹앱 설정값을 붙여넣으세요 (Firebase 콘솔 > 프로젝트 설정 > 내 앱)
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBSQEZH30PExd1FfbZzmmXa3ALBEImxNmg",
+  authDomain: "giftlotto.firebaseapp.com",
+  projectId: "giftlotto",
+  storageBucket: "giftlotto.firebasestorage.app",
+  messagingSenderId: "258354137219",
+  appId: "1:258354137219:web:9ce777bf07d7f8b6e573b6",
+  measurementId: "G-HS7ZVW9J11"
+};
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const app = $('#app');
+let MAX = 100, DIGITS = 3;
+const pad = n => String(n).padStart(DIGITS, '0');
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2800);
+}
+function randInt(min, max) {
+  const range = max - min + 1, lim = Math.floor(0x100000000 / range) * range, a = new Uint32Array(1);
+  let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= lim);
+  return min + (x % range);
+}
+function sample(arr, k) {
+  const a = arr.slice(), n = a.length; k = Math.min(k, n);
+  for (let i = 0; i < k; i++) { const j = randInt(i, n - 1); [a[i], a[j]] = [a[j], a[i]]; }
+  return a.slice(0, k);
+}
+const rnd = () => pad(randInt(1, Math.max(1, MAX)));
+const params = new URLSearchParams(location.search);
+const EID = params.get('e'), VIEW = params.get('view');
+const baseUrl = () => location.origin + location.pathname;
+const checkinUrl = eid => baseUrl() + '?e=' + eid;
+
+const configured = firebaseConfig.projectId && !firebaseConfig.apiKey.includes('여기에');
+let auth, db;
+
+/* ---------------- 설정 안내 ---------------- */
+function showSetup() {
+  app.innerHTML = `<div class="setup"><h1>🎁 스마트 경품추첨 · 최초 설정</h1>
+  <p>이 파일 상단의 <code>firebaseConfig</code>에 Firebase 설정값을 붙여넣어야 동작합니다.</p>
+  <ol>
+  <li>Firebase 콘솔에서 프로젝트 생성 → 웹앱 추가 → 설정값을 복사해 이 파일의 <code>firebaseConfig</code>에 붙여넣기</li>
+  <li><b>Authentication</b> → 로그인 방법 → <b>익명</b>, <b>Google</b> 사용 설정 (익명=참석자, Google=관리자)</li>
+  <li>Authentication → 설정 → 승인된 도메인에 배포 주소(예: <code>계정명.github.io</code>) 추가</li>
+  <li><b>Firestore Database</b> 생성 후, 함께 제공된 <code>firestore.rules</code> 내용을 규칙 탭에 붙여넣고 게시</li>
+  <li>이 파일을 GitHub Pages 등에 올려 배포 (QR은 배포 주소로 만들어집니다)</li>
+  </ol></div>`;
+}
+
+/* ---------------- 무대 화면(프로젝터) ---------------- */
+function confetti() {
+  const cols = ['#ffd666', '#ff7875', '#69c0ff', '#95de64', '#b37feb'];
+  for (let i = 0; i < 60; i++) {
+    const c = document.createElement('i'); c.className = 'conf';
+    c.style.left = Math.random() * 100 + 'vw'; c.style.background = cols[i % 5];
+    c.style.animationDelay = Math.random() * 0.8 + 's'; c.style.animationDuration = 2.4 + Math.random() * 1.6 + 's';
+    document.body.appendChild(c); setTimeout(() => c.remove(), 5000);
+  }
+}
+function makeStage(root, getEv) {
+  let timer = null, tok = 0, prevRolling = 0, lastKey = '', destroyed = false;
+  const clear = () => { clearInterval(timer); timer = null; };
+  const sizeClass = n => n <= 4 ? 's1' : n <= 10 ? 's2' : n <= 24 ? 's3' : n <= 60 ? 's4' : 's5';
+  const cardsHTML = (n, vals) => `<div class="cardsw"><div class="cards ${sizeClass(n)}">` +
+    Array.from({ length: n }, (_, i) => `<div class="card"><span>${vals ? pad(vals[i]) : rnd()}</span></div>`).join('') + `</div></div>`;
+  const reserveHTML = r => r && r.length ? `<div class="st-reserve">예비 당첨 ${r.map(n => `<b>${pad(n)}</b>`).join('')}</div>` : '';
+  function idle() {
+    clear(); const ev = getEv() || {};
+    root.innerHTML = `<div class="st-title">${esc(ev.name || '')}</div><div class="st-sub">경품 추첨</div><div class="st-qr" id="stqr"></div><div class="st-sub">휴대폰 카메라로 QR을 찍어 참석 체크인을 하세요</div>`;
+    try { new QRCode($('#stqr', root), { text: checkinUrl(EID_CUR()), width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M }); } catch (e) { }
+  }
+  function rolling(live) {
+    clear(); const n = Math.min(live.count || 1, 100);
+    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">추첨 중…</div>${cardsHTML(n)}`;
+    const spans = [...root.querySelectorAll('.card span')];
+    timer = setInterval(() => spans.forEach(s => s.textContent = rnd()), 70);
+  }
+  function showStatic(live) {
+    clear();
+    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">🎉 당첨을 축하합니다 🎉</div>${cardsHTML(live.numbers.length, live.numbers)}${reserveHTML(live.reserve)}`;
+    root.querySelectorAll('.card').forEach(c => c.classList.add('locked'));
+  }
+  function reveal(live) {
+    clear(); const my = tok, nums = live.numbers;
+    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">🎉 당첨을 축하합니다 🎉</div>${cardsHTML(nums.length)}`;
+    const cards = [...root.querySelectorAll('.card')], spans = cards.map(c => c.firstElementChild);
+    let locked = 0; const gap = Math.max(40, Math.min(500, 3500 / Math.max(1, nums.length)));
+    timer = setInterval(() => { for (let i = locked; i < spans.length; i++) spans[i].textContent = rnd(); }, 70);
+    (async () => {
+      for (let i = 0; i < nums.length; i++) {
+        await sleep(gap); if (my !== tok || destroyed) return;
+        spans[i].textContent = pad(nums[i]); cards[i].classList.add('locked'); locked = i + 1;
+      }
+      clear(); confetti();
+      root.insertAdjacentHTML('beforeend', reserveHTML(live.reserve));
+    })();
+  }
+  function update(live) {
+    if (destroyed) return;
+    const key = live ? live.id + ':' + live.phase : 'none';
+    if (key === lastKey) return;
+    lastKey = key; tok++;
+    if (!live) return idle();
+    if (live.phase === 'rolling') { prevRolling = live.id; return rolling(live); }
+    if (live.instant || prevRolling !== live.id) showStatic(live); else reveal(live);
+    prevRolling = 0;
+  }
+  return { update, destroy() { destroyed = true; clear(); tok++; } };
+}
+let _eidCur = null; const EID_CUR = () => _eidCur;
+
+async function stagePage() {
+  document.body.classList.add('stage'); _eidCur = EID;
+  const evRef = doc(db, 'events', EID);
+  app.innerHTML = '<div class="stage-root"></div>';
+  let ev = null;
+  const stage = makeStage($('.stage-root'), () => ev);
+  onSnapshot(evRef, s => {
+    if (!s.exists()) { $('.stage-root').innerHTML = '<div class="st-title">존재하지 않는 행사입니다</div>'; return; }
+    ev = s.data(); MAX = ev.maxCount; DIGITS = String(MAX).length; stage.update(ev.live || null);
+  });
+  document.addEventListener('dblclick', () => document.documentElement.requestFullscreen?.());
+}
+
+/* ---------------- 참석자(휴대폰) 화면 ---------------- */
+async function attendeePage() {
+  document.body.classList.add('phone');
+  const evRef = doc(db, 'events', EID);
+  let s; try { s = await getDoc(evRef); } catch (e) { app.innerHTML = '<div class="ph"><div class="pcard">행사 정보를 불러올 수 없습니다.</div></div>'; return; }
+  if (!s.exists()) { app.innerHTML = '<div class="ph"><div class="pcard">존재하지 않는 행사입니다.</div></div>'; return; }
+  let ev = s.data(); MAX = ev.maxCount; DIGITS = String(MAX).length;
+  const uid = auth.currentUser.uid, uref = doc(db, 'events', EID, 'users', uid);
+  let num = null, ticket = null, win = null, busy = false, err = '', subbed = false;
+  const us = await getDoc(uref); if (us.exists()) num = us.data().number;
+
+  function sub() {
+    if (!num || subbed) return; subbed = true;
+    onSnapshot(doc(db, 'events', EID, 'tickets', String(num)), d => { ticket = d.exists() ? d.data() : null; render(); });
+    onSnapshot(doc(db, 'events', EID, 'wins', String(num)), d => { win = d.exists() ? d.data() : null; render(); });
+  }
+  async function checkin() {
+    for (let k = 0; k < 15; k++) {
+      try {
+        const n = await runTransaction(db, async tx => {
+          const u = await tx.get(uref); if (u.exists()) return u.data().number;
+          const c = new Set(); while (c.size < Math.min(8, MAX)) c.add(randInt(1, MAX));
+          const arr = [...c];
+          const snaps = await Promise.all(arr.map(x => tx.get(doc(db, 'events', EID, 'tickets', String(x)))));
+          const i = snaps.findIndex(z => !z.exists()); if (i < 0) return null;
+          tx.set(doc(db, 'events', EID, 'tickets', String(arr[i])), { uid, t: serverTimestamp(), presentRound: 0 });
+          tx.set(uref, { number: arr[i], t: serverTimestamp() });
+          return arr[i];
+        });
+        if (n) return n;
+      } catch (e) {
+        if (e.code === 'permission-denied') throw e;
+      }
+      await sleep(200 + Math.random() * 400);
+    }
+    throw new Error('retry');
+  }
+  function render() {
+    const live = ev.live, pres = ev.presence || {};
+    let h = `<div class="ph"><div class="ph-head">🎁 ${esc(ev.name)}</div>`;
+    if (!num) {
+      h += ev.checkinOpen
+        ? `<div class="pcard"><p>참석 체크인을 하면<br>경품 추첨 번호가 <b>무작위로</b> 발급됩니다.</p><button class="big pri" data-a="checkin" ${busy ? 'disabled' : ''}>${busy ? '번호 발급 중…' : '참석 체크인 · 경품번호 받기'}</button>${err ? `<p class="err">${esc(err)}</p>` : ''}</div>`
+        : `<div class="pcard">체크인이 마감되었습니다.<br>현장 운영요원에게 문의해 주세요.</div>`;
+    } else {
+      h += `<div class="ticket"><div class="lbl">내 경품번호</div><div class="tno">${pad(num)}</div><div class="hint">QR을 다시 찍어도 같은 번호가 표시됩니다.</div></div>`;
+      if (win) {
+        if (win.status === 'won') h += `<div class="win"><div>🎉 축하합니다! 당첨되었습니다</div><div class="t">${esc(win.prizeName)}</div><div>${win.claimed ? '✅ 수령 완료' : '이 화면을 수령처에서 보여주세요'}</div></div>`;
+        else if (win.status === 'reserve') h += `<div class="win res"><div>예비 당첨 ${win.order}순위</div><div>당첨자가 불참하면 순서대로 승계됩니다<br>(${esc(win.prizeName)})</div></div>`;
+        else h += `<div class="win abs">불참 처리되었습니다 (${esc(win.prizeName)})</div>`;
+      }
+      if (pres.open) {
+        const done = ticket && ticket.presentRound === pres.round;
+        h += done ? `<div class="pcard">✅ ${pres.round}차 참석 확인 완료<br><span class="mut">자리를 지켜주세요!</span></div>`
+          : `<div class="pcard"><p><b>지금 자리에 계신가요?</b><br>추첨 대상 확인 중입니다.</p><button class="big pri" data-a="present" ${busy ? 'disabled' : ''}>🙋 지금 자리에 있어요</button>${err ? `<p class="err">${esc(err)}</p>` : ''}</div>`;
+      }
+    }
+    if (live) {
+      if (live.phase === 'rolling') h += `<div class="pcard"><div class="mut">진행 중</div><b style="font-size:22px">${esc(live.title)}</b><p>추첨 중입니다… 🥁</p></div>`;
+      else {
+        const nums = live.numbers || [];
+        h += `<div class="pcard"><div class="mut">최근 추첨</div><b style="font-size:20px">${esc(live.title)}</b><div class="chips">${nums.slice(0, 40).map(n => `<span class="chip ${n === num ? 'me' : ''}">${pad(n)}</span>`).join('')}${nums.length > 40 ? `<span class="mut">외 ${nums.length - 40}명</span>` : ''}</div></div>`;
+      }
+    }
+    app.innerHTML = h + '</div>';
+  }
+  app.addEventListener('click', async e => {
+    const b = e.target.closest('[data-a]'); if (!b || busy) return;
+    busy = true; err = ''; render();
+    try {
+      if (b.dataset.a === 'checkin') { num = await checkin(); sub(); }
+      if (b.dataset.a === 'present') await updateDoc(doc(db, 'events', EID, 'tickets', String(num)), { presentRound: ev.presence.round });
+    } catch (ex) {
+      err = ex.code === 'permission-denied' ? '지금은 처리할 수 없습니다. (마감되었거나 권한 없음)' : '일시적인 오류입니다. 다시 눌러주세요.';
+    }
+    busy = false; render();
+  });
+  onSnapshot(evRef, d => { if (d.exists()) { ev = d.data(); render(); } });
+  sub(); render();
+}
+
+/* ---------------- 관리자 ---------------- */
+let cleanups = [];
+function leave() { cleanups.forEach(f => { try { f(); } catch (e) { } }); cleanups = []; }
+
+function adminPage() {
+  onAuthStateChanged(auth, u => {
+    leave();
+    if (!u || u.isAnonymous) return loginView();
+    const m = location.hash.match(/m=(\w+)/);
+    if (m) manage(m[1], u); else home(u);
+  });
+}
+function loginView() {
+  app.innerHTML = `<div class="login"><h1>🎁 스마트 경품추첨</h1><p class="mut">관리자 로그인 (Google 계정)</p><button class="pri big" id="bLogin">Google로 로그인</button></div>`;
+  $('#bLogin').onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => toast('로그인 실패: ' + e.code));
+}
+async function home(u) {
+  app.innerHTML = `<div class="top"><h1>🎁 스마트 경품추첨</h1><span class="grow"></span><span class="mut" style="color:#cdd6ee">${esc(u.email || '')}</span><button id="bOut">로그아웃</button></div>
+  <div class="wrap"><div class="card-box"><h2>새 행사 만들기</h2>
+  <div class="row"><input id="nName" placeholder="행사명 (예: 2026 군민 한마음 잔치)" style="flex:1;min-width:220px"></div>
+  <div class="row"><label>최대 참석 인원(번호 범위) <input id="nMax" type="number" min="1" max="100000" value="500" style="width:110px"></label>
+  <label>예비 당첨자 수 <input id="nRes" type="number" min="0" max="20" value="2" style="width:70px"></label>
+  <button class="pri" id="bNew">만들기</button></div>
+  <p class="mut">번호는 1 ~ 최대 인원 범위에서 무작위 발급됩니다. 실제 참석 예상 인원보다 여유 있게(예: 1.5배) 잡으면 발급이 더 빠릅니다. (최대 100,000)</p></div>
+  <div class="card-box" style="margin-top:16px"><h2>내 행사</h2><div id="evList" class="mut">불러오는 중…</div></div></div>`;
+  $('#bOut').onclick = () => signOut(auth);
+  $('#bNew').onclick = async () => {
+    const name = $('#nName').value.trim(), max = Math.floor(+$('#nMax').value), res = Math.floor(+$('#nRes').value);
+    if (!name) return toast('행사명을 입력하세요');
+    if (!(max >= 1 && max <= 100000)) return toast('최대 인원은 1~100000');
+    const ref = doc(collection(db, 'events'));
+    try {
+      await setDoc(ref, { name, adminUid: u.uid, maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
+      location.hash = 'm=' + ref.id; manage(ref.id, u);
+    } catch (e) { toast('생성 실패: ' + e.code); }
+  };
+  try {
+    const qs = await getDocs(query(collection(db, 'events'), where('adminUid', '==', u.uid)));
+    const L = qs.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.created?.seconds || 0) - (a.created?.seconds || 0));
+    $('#evList').innerHTML = L.length ? L.map(e => `<div class="prow"><b>${esc(e.name)}</b><span class="tag">최대 ${e.maxCount}명</span><span class="grow"></span><button class="pri sm" data-id="${e.id}">열기</button></div>`).join('') : '아직 만든 행사가 없습니다.';
+    $('#evList').onclick = ev => { const b = ev.target.closest('[data-id]'); if (b) { location.hash = 'm=' + b.dataset.id; manage(b.dataset.id, u); } };
+  } catch (e) { $('#evList').textContent = '목록을 불러오지 못했습니다 (' + e.code + ')'; }
+}
+
+async function manage(eid, u) {
+  leave(); _eidCur = eid;
+  const evRef = doc(db, 'events', eid);
+  const tcol = collection(db, 'events', eid, 'tickets'), wcol = collection(db, 'events', eid, 'wins');
+  const winRef = n => doc(db, 'events', eid, 'wins', String(n));
+  const S = { ev: null, wins: new Map(), pool: new Set(), lastSnap: null, present: null, mode: 'all', drawing: false, stage: null, init: false };
+  let first;
+  try { first = await getDoc(evRef); } catch (e) { first = null; }
+  if (!first || !first.exists() || first.data().adminUid !== u.uid) {
+    app.innerHTML = `<div class="login"><p>이 행사를 관리할 권한이 없거나 존재하지 않습니다.</p><button id="bH">행사 목록</button></div>`;
+    $('#bH').onclick = () => { location.hash = ''; home(u); }; return;
+  }
+  S.ev = first.data(); MAX = S.ev.maxCount; DIGITS = String(MAX).length;
+  const rollSec = () => +(localStorage.getItem('raffle_roll') || 4);
+
+  app.innerHTML = `
+  <div class="top"><button id="bBack">← 행사 목록</button><h1 id="evName"></h1><span class="grow"></span>
+    <button class="pri" id="bStage">🎬 무대 화면 전체보기</button><button id="bStageWin">새 창으로 열기</button></div>
+  <div class="wrap"><div class="grid">
+  <section class="col">
+    <div class="card-box"><h2>🎁 경품 등록 · 추첨</h2>
+      <div class="row"><input id="pName" placeholder="상품명 (예: 에어프라이어)" style="flex:1;min-width:160px"><input id="pCnt" type="number" min="1" value="1" style="width:80px"><span>명</span><button class="pri" id="pAdd">추가</button></div>
+      <div id="prizeList"></div>
+      <div class="row" style="margin-top:12px"><button class="big pri" id="drawNext">▶ 다음 상품 추첨</button></div>
+    </div>
+    <div class="card-box"><h2>🏆 추첨 결과</h2><div class="row"><button id="bXlsx">엑셀로 저장</button><span class="mut">불참 시 [불참→승계] 버튼으로 예비 당첨자에게 즉시 넘어갑니다.</span></div><div id="results"></div></div>
+  </section>
+  <section class="col">
+    <div class="card-box"><h2>📲 QR 체크인</h2>
+      <div class="qrbox"><div id="qr"></div><div style="flex:1;min-width:180px">
+        <div class="stat"><div><span class="mut">체크인</span><b id="cIn">-</b></div><div><span class="mut">최대</span><b>${S.ev.maxCount}</b></div></div>
+        <div class="row"><button id="bTog"></button><button id="bQrPng" class="pri">QR 이미지 저장(홍보물용)</button></div>
+        <div class="url" id="ciUrl"></div><button class="sm" id="bCopy" style="margin-top:6px">주소 복사</button></div></div>
+      <p class="mut">이 QR을 홍보물·현수막에 넣으면, 참석자가 스캔 시 무작위 번호가 발급됩니다. (개인정보 수집 없음)</p>
+    </div>
+    <div class="card-box"><h2>🙋 참석 재확인 (불참자 사전 제외)</h2>
+      <div class="stat"><div><span class="mut">현재 차수</span><b id="pRound">0</b></div><div><span class="mut">확인 완료</span><b id="pCnt2">-</b></div><div><span class="mut">상태</span><b id="pState" style="font-size:16px">-</b></div></div>
+      <div class="row"><button class="pri" id="bPStart">새 확인 시작</button><button id="bPEnd">마감 · 명단 확정</button></div>
+      <div class="row"><input id="pNum" type="number" min="1" placeholder="번호" style="width:110px"><button id="bPMark">번호로 참석 처리</button><span class="mut">폰 없는 분 대리 처리</span></div>
+      <p class="mut">추첨 직전에 시작 → 참석자 폰의 [지금 자리에 있어요]를 누른 사람만 추첨 대상으로 확정할 수 있습니다.</p>
+    </div>
+    <div class="card-box"><h2>🧓 현장 등록 (폰 없는 분)</h2>
+      <div class="row"><button class="pri" id="bProxy">무작위 번호 발급</button><input id="mNum" type="number" min="1" placeholder="종이 번호" style="width:110px"><button id="bManual">번호 직접 등록</button></div>
+      <p class="mut">발급된 번호를 종이에 적어 전달하세요. 이미 나눠준 종이 번호는 직접 등록할 수 있습니다.</p>
+    </div>
+    <div class="card-box"><h2>⚙️ 추첨 설정</h2>
+      <div class="row"><label>추첨 대상</label>
+        <label><input type="radio" name="mode" value="all" checked> 체크인 전체</label>
+        <label><input type="radio" name="mode" value="present"> 참석 확인 명단</label></div>
+      <div class="row"><label>예비 당첨자 수 <input id="sRes" type="number" min="0" max="20" style="width:70px"></label>
+        <label>연출 시간(초) <input id="sRoll" type="number" min="1" max="15" style="width:70px"></label></div>
+      <div class="row"><button id="bLoad">명단 새로고침</button><span class="mut" id="poolInfo"></span></div>
+    </div>
+  </section></div></div>`;
+
+  $('#bBack').onclick = () => { leave(); location.hash = ''; home(u); };
+  $('#evName').textContent = S.ev.name;
+  $('#ciUrl').textContent = checkinUrl(eid);
+  $('#sRoll').value = rollSec();
+  new QRCode($('#qr'), { text: checkinUrl(eid), width: 190, height: 190, correctLevel: QRCode.CorrectLevel.M });
+  const cleanOverlay = () => { if (S.stage) { S.stage.destroy(); S.stage = null; } document.querySelectorAll('.overlay').forEach(o => o.remove()); if (document.fullscreenElement) document.exitFullscreen?.(); };
+  cleanups.push(cleanOverlay);
+
+  /* 실시간 구독 */
+  cleanups.push(onSnapshot(evRef, s => {
+    if (!s.exists()) return; S.ev = s.data();
+    if (!S.init) { S.init = true; $('#sRes').value = S.ev.reserveCount ?? 0; }
+    renderAll(); S.stage && S.stage.update(S.ev.live || null);
+  }));
+  cleanups.push(onSnapshot(wcol, qs => { S.wins = new Map(qs.docs.map(d => [Number(d.id), d.data()])); renderResults(); renderPrizes(); }));
+
+  function renderAll() {
+    const ev = S.ev, p = ev.presence || { round: 0, open: false };
+    $('#bTog').textContent = ev.checkinOpen ? '체크인 마감하기' : '체크인 다시 열기';
+    $('#pRound').textContent = p.round; $('#pState').textContent = p.open ? '확인 중 🟢' : (p.round ? '마감됨' : '미시작');
+    renderPrizes();
+  }
+  function nextPrize() { return (S.ev.prizes || []).find(p => !p.done); }
+  function renderPrizes() {
+    const L = S.ev.prizes || [];
+    $('#prizeList').innerHTML = L.length ? L.map((p, i) => `<div class="prow ${p.done ? 'done' : ''}"><span class="idx">${i + 1}</span><b>${esc(p.name)}</b><span class="tag">${p.count}명</span><span class="grow"></span>${p.done ? '<span class="tag ok">완료</span>' : `<button class="pri sm" data-a="draw" data-id="${p.id}">추첨</button>`}<button class="sm" data-a="up" data-id="${p.id}">↑</button><button class="sm" data-a="down" data-id="${p.id}">↓</button>${p.done ? '' : `<button class="sm bad" data-a="del" data-id="${p.id}">삭제</button>`}</div>`).join('') : '<p class="mut">경품을 추가하세요. (상품명과 추첨 인원을 하나씩 입력)</p>';
+    const np = nextPrize(); const b = $('#drawNext');
+    b.disabled = !np || S.drawing; b.textContent = S.drawing ? '추첨 중…' : np ? `▶ 다음 추첨: ${np.name} (${np.count}명)` : '모든 경품 추첨 완료';
+  }
+  function renderResults() {
+    const by = new Map(); for (const w of S.wins.values()) { if (!by.has(w.prizeId)) by.set(w.prizeId, []); by.get(w.prizeId).push(w); }
+    const rank = { won: 0, reserve: 1, absent: 2 };
+    let h = '';
+    for (const p of (S.ev.prizes || [])) {
+      const ws = (by.get(p.id) || []).sort((a, b) => rank[a.status] - rank[b.status] || a.order - b.order); if (!ws.length) continue;
+      h += `<div class="phead">${esc(p.name)} <span class="tag">${p.count}명</span><span class="grow"></span><button class="sm bad" data-a="undo" data-id="${p.id}">추첨 되돌리기</button></div>`;
+      h += ws.map(w => `<div class="wrow ${w.status}"><span class="num">${pad(w.n)}</span><span class="tag">${w.status === 'won' ? (w.promoted ? '당첨(승계)' : '당첨') : w.status === 'reserve' ? '예비' + w.order : '불참'}</span><span class="grow"></span>${w.status === 'won' ? `<label><input type="checkbox" data-a="claim" data-n="${w.n}" ${w.claimed ? 'checked' : ''}> 수령</label><button class="sm bad" data-a="absent" data-n="${w.n}">불참→승계</button>` : ''}</div>`).join('');
+    }
+    $('#results').innerHTML = h || '<p class="mut">아직 추첨 결과가 없습니다.</p>';
+  }
+
+  /* 집계 */
+  async function counts() {
+    try {
+      const t = await getCountFromServer(tcol); $('#cIn').textContent = t.data().count.toLocaleString();
+      const r = S.ev.presence?.round || 0;
+      if (r) { const c = await getCountFromServer(query(tcol, where('presentRound', '==', r))); $('#pCnt2').textContent = c.data().count.toLocaleString(); }
+      else $('#pCnt2').textContent = '-';
+    } catch (e) { }
+  }
+  counts(); const iv = setInterval(counts, 15000); cleanups.push(() => clearInterval(iv));
+  function poolInfo() { $('#poolInfo').textContent = S.mode === 'present' ? `참석 확인 명단 ${S.present ? S.present.size.toLocaleString() : 0}명` : `불러온 명단 ${S.pool.size.toLocaleString()}명`; }
+  async function loadAll() {
+    const q = S.lastSnap ? query(tcol, orderBy('t'), startAfter(S.lastSnap)) : query(tcol, orderBy('t'));
+    const qs = await getDocs(q); qs.docs.forEach(d => S.pool.add(Number(d.id)));
+    if (qs.docs.length) S.lastSnap = qs.docs[qs.docs.length - 1]; poolInfo();
+  }
+  async function loadPresent() {
+    const r = S.ev.presence?.round || 0; const qs = await getDocs(query(tcol, where('presentRound', '==', r)));
+    S.present = new Set(qs.docs.map(d => Number(d.id)));
+  }
+  async function eligible() {
+    if (S.mode === 'present') { if (!S.present) throw new Error('참석 확인 명단이 없습니다. 먼저 [마감 · 명단 확정]을 눌러주세요.'); return [...S.present].filter(n => !S.wins.has(n)); }
+    await loadAll(); return [...S.pool].filter(n => !S.wins.has(n));
+  }
+
+  /* 추첨 실행 */
+  async function runDraw(prize) {
+    if (S.drawing) return; S.drawing = true; renderPrizes();
+    try {
+      const el = await eligible();
+      if (!el.length) { toast('추첨 대상이 없습니다'); return; }
+      if (el.length < prize.count && !confirm(`추첨 대상(${el.length}명)이 당첨 인원(${prize.count}명)보다 적습니다. 가능한 인원만 추첨할까요?`)) return;
+      const resv = +$('#sRes').value || 0;
+      const picks = sample(el, Math.min(el.length, prize.count + resv));
+      const winners = picks.slice(0, prize.count), reserve = picks.slice(prize.count);
+      const id = (S.ev.live?.id || 0) + 1;
+      await updateDoc(evRef, { live: { id, phase: 'rolling', title: prize.name, count: winners.length, t: Date.now() } });
+      await sleep(Math.max(1, rollSec()) * 1000 + Math.min(winners.length * 20, 2000));
+      const ops = [];
+      winners.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'won', order: i + 1, claimed: false, t: serverTimestamp() }]));
+      reserve.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'reserve', order: i + 1, claimed: false, t: serverTimestamp() }]));
+      for (let i = 0; i < ops.length; i += 400) { const b = writeBatch(db); ops.slice(i, i + 400).forEach(([r, d]) => b.set(r, d)); await b.commit(); }
+      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', title: prize.name, numbers: winners, reserve, t: Date.now() } });
+    } catch (e) { toast(e.message || ('오류: ' + e.code)); }
+    finally { S.drawing = false; renderPrizes(); }
+  }
+  async function markAbsent(n) {
+    const w = S.wins.get(n); if (!w) return;
+    if (!confirm(`${pad(n)}번을 불참 처리하고 예비 당첨자에게 승계할까요?`)) return;
+    try {
+      const b = writeBatch(db); b.update(winRef(n), { status: 'absent' });
+      let promoted = null;
+      const res = [...S.wins.values()].filter(x => x.prizeId === w.prizeId && x.status === 'reserve').sort((a, c) => a.order - c.order)[0];
+      if (res) { b.update(winRef(res.n), { status: 'won', promoted: true }); promoted = res.n; }
+      else { const el = await eligible(); if (el.length) { promoted = sample(el, 1)[0]; b.set(winRef(promoted), { n: promoted, prizeId: w.prizeId, prizeName: w.prizeName, status: 'won', order: w.order, claimed: false, promoted: true, t: serverTimestamp() }); } }
+      if (promoted != null) b.update(evRef, { live: { id: (S.ev.live?.id || 0) + 1, phase: 'done', instant: true, title: w.prizeName + ' · 불참 승계', numbers: [promoted], reserve: [], t: Date.now() } });
+      await b.commit(); toast(promoted != null ? `${pad(promoted)}번이 승계되었습니다` : '승계할 대상이 없습니다');
+    } catch (e) { toast('오류: ' + (e.code || e.message)); }
+  }
+  async function undoPrize(id) {
+    if (!confirm('이 상품의 추첨 결과를 모두 삭제하고 다시 추첨할 수 있게 할까요?')) return;
+    const ws = [...S.wins.values()].filter(w => w.prizeId === id);
+    for (let i = 0; i < ws.length; i += 400) { const b = writeBatch(db); ws.slice(i, i + 400).forEach(w => b.delete(winRef(w.n))); await b.commit(); }
+    await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === id ? { ...p, done: false } : p) });
+  }
+
+  /* 이벤트 핸들러 */
+  $('#pAdd').onclick = async () => {
+    const name = $('#pName').value.trim(), count = Math.floor(+$('#pCnt').value);
+    if (!name) return toast('상품명을 입력하세요'); if (!(count >= 1)) return toast('추첨 인원은 1명 이상');
+    await updateDoc(evRef, { prizes: [...(S.ev.prizes || []), { id: Math.random().toString(36).slice(2, 10), name, count, done: false }] });
+    $('#pName').value = ''; $('#pCnt').value = 1; $('#pName').focus();
+  };
+  $('#pName').onkeydown = e => { if (e.key === 'Enter') $('#pAdd').click(); };
+  $('#prizeList').onclick = async e => {
+    const b = e.target.closest('[data-a]'); if (!b) return; const id = b.dataset.id, L = [...S.ev.prizes], i = L.findIndex(p => p.id === id);
+    if (b.dataset.a === 'draw') return runDraw(L[i]);
+    if (b.dataset.a === 'del') { if (confirm(`'${L[i].name}'을(를) 삭제할까요?`)) { L.splice(i, 1); await updateDoc(evRef, { prizes: L }); } return; }
+    const j = b.dataset.a === 'up' ? i - 1 : i + 1; if (j < 0 || j >= L.length) return;
+    [L[i], L[j]] = [L[j], L[i]]; await updateDoc(evRef, { prizes: L });
+  };
+  $('#drawNext').onclick = () => { const p = nextPrize(); if (p) runDraw(p); };
+  $('#results').onclick = e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    if (b.dataset.a === 'absent') markAbsent(+b.dataset.n);
+    if (b.dataset.a === 'undo') undoPrize(b.dataset.id);
+  };
+  $('#results').onchange = async e => {
+    const c = e.target.closest('[data-a="claim"]'); if (c) await updateDoc(winRef(+c.dataset.n), { claimed: c.checked });
+  };
+  $('#bTog').onclick = () => updateDoc(evRef, { checkinOpen: !S.ev.checkinOpen });
+  $('#bCopy').onclick = () => navigator.clipboard.writeText(checkinUrl(eid)).then(() => toast('주소를 복사했습니다'));
+  $('#bQrPng').onclick = () => {
+    const tmp = document.createElement('div'); new QRCode(tmp, { text: checkinUrl(eid), width: 900, height: 900, correctLevel: QRCode.CorrectLevel.M });
+    const c = tmp.querySelector('canvas'), out = document.createElement('canvas'); out.width = out.height = 1100;
+    const x = out.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 1100, 1100); x.drawImage(c, 100, 100);
+    const a = document.createElement('a'); a.href = out.toDataURL('image/png'); a.download = `${S.ev.name}_체크인QR.png`; a.click();
+  };
+  $('#bStage').onclick = () => {
+    cleanOverlay();
+    const ov = document.createElement('div'); ov.className = 'overlay stagebg';
+    ov.innerHTML = '<button class="ov-close">✕ 닫기 (Esc)</button><div class="stage-root"></div>'; document.body.appendChild(ov);
+    S.stage = makeStage($('.stage-root', ov), () => S.ev); S.stage.update(S.ev.live || null);
+    ov.requestFullscreen?.().catch(() => { });
+    const close = () => cleanOverlay(); $('.ov-close', ov).onclick = close;
+    ov.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) close(); });
+  };
+  $('#bStageWin').onclick = () => window.open(baseUrl() + '?e=' + eid + '&view=screen', 'stage');
+  $('#sRes').onchange = () => updateDoc(evRef, { reserveCount: Math.max(0, Math.min(20, Math.floor(+$('#sRes').value || 0))) });
+  $('#sRoll').onchange = () => localStorage.setItem('raffle_roll', String(Math.max(1, Math.min(15, +$('#sRoll').value || 4))));
+  document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = () => {
+    if (r.value === 'present' && !S.present) { toast('먼저 참석 재확인을 [마감 · 명단 확정] 해주세요'); document.querySelector('input[name=mode][value=all]').checked = true; S.mode = 'all'; }
+    else S.mode = r.value; poolInfo();
+  });
+  $('#bLoad').onclick = async () => { try { if (S.mode === 'present') await loadPresent(); else await loadAll(); poolInfo(); counts(); toast('명단을 새로고침했습니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); } };
+
+  /* 참석 재확인 */
+  $('#bPStart').onclick = async () => {
+    if (!confirm('새 참석 확인을 시작합니다. 참석자 폰에 [지금 자리에 있어요] 버튼이 표시됩니다.')) return;
+    S.present = null; S.mode = 'all'; document.querySelector('input[name=mode][value=all]').checked = true;
+    await updateDoc(evRef, { presence: { round: (S.ev.presence?.round || 0) + 1, open: true } }); poolInfo();
+  };
+  $('#bPEnd').onclick = async () => {
+    if (!(S.ev.presence?.round)) return toast('먼저 참석 확인을 시작하세요');
+    await updateDoc(evRef, { presence: { round: S.ev.presence.round, open: false } });
+    await loadPresent(); S.mode = 'present'; document.querySelector('input[name=mode][value=present]').checked = true; poolInfo(); counts();
+    toast(`참석 확인 ${S.present.size}명 · 추첨 대상으로 설정되었습니다`);
+  };
+  $('#bPMark').onclick = async () => {
+    const n = Math.floor(+$('#pNum').value), r = S.ev.presence?.round || 0;
+    if (!r) return toast('먼저 참석 확인을 시작하세요');
+    try {
+      const s = await getDoc(doc(tcol, String(n))); if (!s.exists()) return toast('등록되지 않은 번호입니다');
+      await updateDoc(doc(tcol, String(n)), { presentRound: r }); if (S.present) S.present.add(n);
+      $('#pNum').value = ''; toast(`${pad(n)}번 참석 처리`); poolInfo(); counts();
+    } catch (e) { toast('오류: ' + e.code); }
+  };
+
+  /* 현장 등록 */
+  async function regTicket(n) {
+    return runTransaction(db, async tx => {
+      const r = doc(tcol, String(n)), s = await tx.get(r); if (s.exists()) return false;
+      tx.set(r, { uid: u.uid, t: serverTimestamp(), presentRound: 0, proxy: true }); return true;
+    });
+  }
+  $('#bProxy').onclick = async () => {
+    try {
+      for (let k = 0; k < 30; k++) { const n = randInt(1, MAX); if (await regTicket(n)) return showNum(n); }
+      toast('빈 번호를 찾지 못했습니다. 최대 인원을 확인하세요.');
+    } catch (e) { toast('오류: ' + (e.code || e.message)); }
+  };
+  $('#bManual').onclick = async () => {
+    const n = Math.floor(+$('#mNum').value); if (!(n >= 1 && n <= MAX)) return toast(`1~${MAX} 범위의 번호를 입력하세요`);
+    try { if (await regTicket(n)) { toast(`${pad(n)}번 등록 완료`); $('#mNum').value = ''; counts(); } else toast('이미 등록된 번호입니다'); }
+    catch (e) { toast('오류: ' + (e.code || e.message)); }
+  };
+  function showNum(n) {
+    const m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = `<div class="box"><div class="mut">발급된 경품번호</div><div class="bignum">${pad(n)}</div><p class="mut">종이에 적어 전달해 주세요</p><button class="pri" id="mOk">확인</button></div>`;
+    document.body.appendChild(m); $('#mOk', m).onclick = () => { m.remove(); counts(); };
+  }
+
+  /* 엑셀 저장 */
+  $('#bXlsx').onclick = () => {
+    const rows = [['상품', '구분', '순번', '경품번호', '수령']];
+    const rank = { won: 0, reserve: 1, absent: 2 }, lab = { won: '당첨', reserve: '예비', absent: '불참' };
+    for (const p of (S.ev.prizes || [])) [...S.wins.values()].filter(w => w.prizeId === p.id).sort((a, b) => rank[a.status] - rank[b.status] || a.order - b.order)
+      .forEach(w => rows.push([p.name, lab[w.status] + (w.promoted ? '(승계)' : ''), w.order, pad(w.n), w.claimed ? '수령' : '']));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), '추첨결과');
+    XLSX.writeFile(wb, `${S.ev.name}_추첨결과.xlsx`);
+  };
+  renderAll(); renderResults(); poolInfo();
+}
+
+/* ---------------- 시작 ---------------- */
+async function boot() {
+  if (!configured) return showSetup();
+  const fb = initializeApp(firebaseConfig); auth = getAuth(fb); db = getFirestore(fb);
+  if (EID) {
+    await new Promise(res => { const un = onAuthStateChanged(auth, () => { un(); res(); }); });
+    if (!auth.currentUser) await signInAnonymously(auth);
+    return VIEW === 'screen' ? stagePage() : attendeePage();
+  }
+  adminPage();
+}
+boot();
+</script>
+</body>
+</html>
