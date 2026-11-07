@@ -51,6 +51,11 @@ h2{font-size:16px;margin:0 0 12px}
 .modal{position:fixed;inset:0;background:rgba(10,18,40,.7);display:flex;align-items:center;justify-content:center;z-index:60}
 .modal .box{background:#fff;border-radius:18px;padding:28px;text-align:center;min-width:280px}
 .modal .bignum{font-size:72px;font-weight:900;color:#2f5bea;font-variant-numeric:tabular-nums}
+.guide{text-align:left;font-size:14px;line-height:1.65}
+.guide h3{font-size:15px;margin:16px 0 6px}
+.guide ol,.guide ul{margin:4px 0;padding-left:20px}
+.guide li{margin:3px 0}
+.guide .tip{background:#f3f6ff;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px}
 .login{max-width:420px;margin:12vh auto;text-align:center;background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e6ee}
 .setup{max-width:760px;margin:30px auto;background:#fff;border-radius:16px;padding:24px;line-height:1.7}
 .setup code,.setup pre{background:#f3f5fb;border-radius:6px;padding:2px 6px}
@@ -463,8 +468,30 @@ function adminPage() {
     if (m) manage(m[1], u); else home(u);
   });
 }
+const guideHTML = () => `<div class="guide">
+  <p><b>행사장에서 경품 추첨을 빠르고 재미있게 진행하는 도구</b>입니다. 참석자가 QR로 체크인하면 경품번호가 무작위로 발급되고, 상품별로 여러 명을 한꺼번에 추첨해 프로젝터 화면에 사다리타기·숫자 롤링으로 보여 줍니다. 참석자는 자기 휴대폰에서 당첨 여부를 실시간으로 확인합니다.</p>
+  <h3>📋 진행 순서</h3>
+  <ol>
+    <li><b>행사 만들기</b> – 행사명, 행사 날짜, 최대 참석 인원(최대 100,000명), 예비 당첨자 수를 정합니다.</li>
+    <li><b>경품 등록</b> – 상품명과 당첨 인원을 하나씩 입력합니다.</li>
+    <li><b>QR 체크인</b> – 체크인 QR을 홍보물·현장 안내판에 인쇄해 두면, 참석자가 휴대폰으로 찍어 소속·이름 등을 입력하고 번호를 받습니다. 입력 항목은 관리자가 설정합니다.</li>
+    <li><b>참석 재확인</b> – 추첨 직전에 참석자 폰에 확인 버튼을 띄워 현장에 있는 분만 추첨 명단으로 확정합니다. 현장 부재자 재추첨을 줄여 줍니다.</li>
+    <li><b>무대 화면 열기</b> – 프로젝터에 무대 화면을 띄우고 [추첨]을 누르면 당첨 번호가 공개됩니다.</li>
+    <li><b>결과 저장·개인정보 삭제</b> – 행사 후 당첨 결과를 엑셀로 저장하고 입력 정보를 삭제합니다.</li>
+  </ol>
+  <h3>✨ 주요 기능</h3>
+  <ul>
+    <li>여러 명 동시 추첨, 예비 당첨자, 불참자 1클릭 승계</li>
+    <li>폰이 없는 분 현장 등록(번호 발급·종이 번호 등록, 한 번 등록하면 모든 추첨에 자동 포함)</li>
+    <li>관리자 여러 명 공동 운영(Google 계정 추가), 당첨 결과·참석자 명단 엑셀 저장</li>
+    <li>소속·이름 무대 표시와 이름 가리기(홍*동)</li>
+  </ul>
+  <div class="tip">🔒 <b>개인정보 안내</b> – 참석자 입력 정보는 체크인 시 동의를 받아 수집하며, 행사 당일에만 입력할 수 있습니다. 행사가 끝나면 관리자가 반드시 [입력 정보 모두 삭제]로 파기해야 합니다(자동 삭제되지 않습니다).</div>
+  <div class="tip">👤 관리자는 Google 로그인이 필요합니다. 참석자는 로그인 없이 QR만 찍으면 됩니다.</div>
+</div>`;
 function loginView() {
-  app.innerHTML = `<div class="login"><h1>🎁 스마트 경품추첨</h1><p class="mut">관리자 로그인 (Google 계정)</p><button class="pri big" id="bLogin">Google로 로그인</button></div>`;
+  app.innerHTML = `<div class="wrap" style="max-width:640px"><div class="login" style="margin:6vh auto 16px;max-width:none"><h1>🎁 스마트 경품추첨</h1><p class="mut">관리자 로그인 (Google 계정)</p><button class="pri big" id="bLogin">Google로 로그인</button></div>
+  <div class="card-box"><h2 style="margin-top:0">사용 안내</h2>${guideHTML()}</div></div>`;
   $('#bLogin').onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => toast('로그인 실패: ' + e.code));
 }
 async function home(u) {
@@ -476,7 +503,8 @@ async function home(u) {
   <label>예비 당첨자 수 <input id="nRes" type="number" min="0" max="20" value="2" style="width:70px"></label>
   <button class="pri" id="bNew">만들기</button></div>
   <p class="mut">번호는 1 ~ 최대 인원 범위에서 무작위 발급됩니다. 실제 참석 예상 인원보다 여유 있게(예: 1.5배) 잡으면 발급이 더 빠릅니다. (최대 100,000)</p></div>
-  <div class="card-box" style="margin-top:16px"><h2>내 행사</h2><div id="evList" class="mut">불러오는 중…</div></div></div>`;
+  <div class="card-box" style="margin-top:16px"><h2>내 행사</h2><div id="evList" class="mut">불러오는 중…</div></div>
+  <details class="card-box" style="margin-top:16px"><summary style="cursor:pointer;font-weight:700">📖 사용 안내</summary>${guideHTML()}</details></div>`;
   $('#bOut').onclick = () => signOut(auth);
   $('#bNew').onclick = async () => {
     const name = $('#nName').value.trim(), max = Math.floor(+$('#nMax').value), res = Math.floor(+$('#nRes').value);
