@@ -14,6 +14,13 @@ service cloud.firestore {
     }
     function isAdmin(eid) { return isAdminData(get(evPath(eid)).data); }
 
+    // 행사 당일(startAt ~ endAt, 한국시간 기준 00:00~24:00)에만 참석자 쓰기를 허용
+    // startAt/endAt이 없는 행사는 참석자 쓰기가 모두 거부됨 (관리자가 행사 날짜를 지정해야 함)
+    function inEventDay(eid) {
+      let e = get(evPath(eid)).data;
+      return request.time >= e.startAt && request.time < e.endAt;
+    }
+
     match /events/{eid} {
       allow get: if signedIn();
       allow list: if signedIn() && (
@@ -29,11 +36,12 @@ service cloud.firestore {
             || resource.data.adminUid == request.auth.uid);
       allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;
 
-      // 참석자별 번호 기록 (기기당 1회만 생성, 수정 불가)
+      // 참석자별 번호 기록 (기기당 1회만 생성, 수정 불가 / 행사 당일만)
       match /users/{uid} {
         allow read: if signedIn() && request.auth.uid == uid;
         allow create: if signedIn() && request.auth.uid == uid
-          && get(evPath(eid)).data.checkinOpen == true;
+          && get(evPath(eid)).data.checkinOpen == true
+          && inEventDay(eid);
       }
 
       // 경품번호 (존재 여부 확인을 위해 get은 로그인 사용자 모두 허용, 개인정보 없음)
@@ -49,6 +57,7 @@ service cloud.firestore {
             && !('proxy' in request.resource.data)
             && getAfter(/databases/$(database)/documents/events/$(eid)/users/$(request.auth.uid)).data.number == int(num)
             && get(evPath(eid)).data.checkinOpen == true
+            && inEventDay(eid)
           )
           || isAdmin(eid)
         );
@@ -59,6 +68,7 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['presentRound'])
             && get(evPath(eid)).data.presence.open == true
             && request.resource.data.presentRound == get(evPath(eid)).data.presence.round
+            && inEventDay(eid)
           )
           || isAdmin(eid)
         );
@@ -66,21 +76,32 @@ service cloud.firestore {
       }
 
       // 참석자 입력 정보(소속·이름 등): 본인과 관리자만 조회 가능 (경품번호 문서와 분리 저장)
+      // expireAt: 행사 종료 시각. Firestore TTL 정책(컬렉션 그룹 entries, 필드 expireAt)으로 자동 삭제
       match /entries/{num} {
         allow get: if signedIn() && (resource == null || resource.data.uid == request.auth.uid || isAdmin(eid));
         allow list: if isAdmin(eid);
         allow create: if signedIn() && num.matches('^[1-9][0-9]{0,5}$') && (
           (
             request.resource.data.uid == request.auth.uid
-            && request.resource.data.keys().hasOnly(['uid', 'f', 't'])
+            && request.resource.data.keys().hasOnly(['uid', 'f', 't', 'expireAt', 'consent'])
             && request.resource.data.f.size() <= 8
+            && request.resource.data.consent == true
             && request.resource.data.t == request.time
+            && request.resource.data.expireAt == get(evPath(eid)).data.purgeAt
             && getAfter(/databases/$(database)/documents/events/$(eid)/users/$(request.auth.uid)).data.number == int(num)
             && get(evPath(eid)).data.checkinOpen == true
+            && inEventDay(eid)
           )
           || isAdmin(eid)
         );
         allow update, delete: if isAdmin(eid);
+      }
+
+      // 무대 화면 표시용 당첨자 정보(소속·이름 일부): 추첨 1건당 1문서, expireAt으로 자동 삭제
+      // (컬렉션 그룹 liveinfo, 필드 expireAt에도 TTL 정책 필요)
+      match /liveinfo/{id} {
+        allow get: if signedIn();
+        allow list, write: if isAdmin(eid);
       }
 
       // 당첨 결과 (본인 번호 문서만 조회 가능, 목록·쓰기는 관리자만)

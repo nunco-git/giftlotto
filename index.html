@@ -151,6 +151,18 @@ const params = new URLSearchParams(location.search);
 const EID = params.get('e'), VIEW = params.get('view');
 const baseUrl = () => location.origin + location.pathname;
 const checkinUrl = eid => baseUrl() + '?e=' + eid;
+/* 행사 당일(한국시간 00:00 ~ 24:00) 범위. purgeAt: 개인정보 문서의 자동 삭제(TTL) 기준 시각 */
+const dayTimes = ds => { const s = new Date(ds + 'T00:00:00+09:00'); const e = new Date(s.getTime() + 864e5); return { eventDate: ds, startAt: s, endAt: e, purgeAt: e }; };
+const todayKST = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+const liveInfoCache = new Map();
+async function resolveLive(eid, live) {
+  if (!live || live.phase !== 'done' || !live.hasInfo) return live;
+  if (!liveInfoCache.has(live.id)) {
+    try { const s = await getDoc(doc(db, 'events', eid, 'liveinfo', String(live.id))); liveInfoCache.set(live.id, s.exists() ? (s.data().info || []) : []); }
+    catch (e) { liveInfoCache.set(live.id, []); }
+  }
+  return { ...live, info: liveInfoCache.get(live.id) };
+}
 
 const configured = firebaseConfig.projectId && !firebaseConfig.apiKey.includes('여기에');
 let auth, db;
@@ -236,9 +248,11 @@ async function stagePage() {
   app.innerHTML = '<div class="stage-root"></div>';
   let ev = null;
   const stage = makeStage($('.stage-root'), () => ev);
+  let seq = 0;
   onSnapshot(evRef, s => {
     if (!s.exists()) { $('.stage-root').innerHTML = '<div class="st-title">존재하지 않는 행사입니다</div>'; return; }
-    ev = s.data(); MAX = ev.maxCount; DIGITS = String(MAX).length; stage.update(ev.live || null);
+    ev = s.data(); MAX = ev.maxCount; DIGITS = String(MAX).length;
+    const my = ++seq; resolveLive(EID, ev.live || null).then(l => { if (my === seq) stage.update(l); });
   });
   document.addEventListener('dblclick', () => document.documentElement.requestFullscreen?.());
 }
@@ -253,6 +267,8 @@ async function attendeePage() {
   const uid = auth.currentUser.uid, uref = doc(db, 'events', EID, 'users', uid);
   let num = null, ticket = null, win = null, busy = false, err = '', subbed = false, entry = null;
   const formVals = {};
+  let consent = false;
+  const inDay = () => !!(ev.startAt && ev.endAt) && Date.now() >= ev.startAt.toMillis() && Date.now() < ev.endAt.toMillis();
   const us = await getDoc(uref); if (us.exists()) num = us.data().number;
   if (num) { try { const es = await getDoc(doc(db, 'events', EID, 'entries', String(num))); if (es.exists()) entry = es.data().f || {}; } catch (e) { } }
   const collectVals = () => { const o = {}; (ev.fields || []).forEach(f => { const v = (formVals[f.id] || '').trim(); if (v) o[f.id] = v; }); return o; };
@@ -273,7 +289,7 @@ async function attendeePage() {
           const snaps = await Promise.all(arr.map(x => tx.get(doc(db, 'events', EID, 'tickets', String(x)))));
           const i = snaps.findIndex(z => !z.exists()); if (i < 0) return null;
           tx.set(doc(db, 'events', EID, 'tickets', String(arr[i])), { uid, t: serverTimestamp(), presentRound: 0 });
-          if (Object.keys(fv).length) tx.set(doc(db, 'events', EID, 'entries', String(arr[i])), { uid, f: fv, t: serverTimestamp() });
+          if (Object.keys(fv).length) tx.set(doc(db, 'events', EID, 'entries', String(arr[i])), { uid, f: fv, consent: true, t: serverTimestamp(), expireAt: ev.purgeAt });
           tx.set(uref, { number: arr[i], t: serverTimestamp() });
           return arr[i];
         });
@@ -288,6 +304,18 @@ async function attendeePage() {
   function formHTML() {
     return (ev.fields || []).map(f => `<label class="fl">${esc(f.label)}${f.required ? ' <span class="err">*</span>' : ''}<input data-f="${f.id}" id="f_${f.id}" maxlength="30" autocomplete="off" value="${esc(formVals[f.id] || '')}"></label>`).join('');
   }
+  function consentHTML() {
+    const F = ev.fields || []; if (!F.length) return '';
+    const shown = F.filter(f => f.show).map(f => f.label + (f.mask ? '(일부 가림)' : ''));
+    return `<div style="text-align:left;background:#f3f5fb;border-radius:10px;padding:12px;margin:12px 0;font-size:13px;line-height:1.6">
+      <b>개인정보 수집·이용 동의 (필수)</b><br>
+      · 수집 항목: ${esc(F.map(f => f.label).join(', '))}<br>
+      · 수집 목적: 경품 추첨 및 당첨자 확인, 경품 전달<br>
+      · 보유·이용 기간: 행사 당일(${esc(ev.eventDate || '')}) 한정이며, 행사 종료 후 <b>자동 삭제</b>됩니다(통상 24시간 이내).<br>
+      ${shown.length ? `· 당첨 시 무대 화면에 ${esc(shown.join(', '))}이(가) 표시될 수 있습니다.<br>` : ''}
+      · 동의를 거부할 수 있으며, 거부 시 경품 추첨 참여가 제한됩니다.
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:700;font-size:15px"><input type="checkbox" id="consent" ${consent ? 'checked' : ''} style="width:20px;height:20px"> 위 내용에 동의합니다</label></div>`;
+  }
   function entryLine() {
     const t = (ev.fields || []).map(f => entry && entry[f.id]).filter(Boolean).join(' · ');
     return t ? `<div style="font-weight:700;margin:4px 0">${esc(t)}</div>` : '';
@@ -296,9 +324,9 @@ async function attendeePage() {
     const live = ev.live, pres = ev.presence || {};
     let h = `<div class="ph"><div class="ph-head">🎁 ${esc(ev.name)}</div>`;
     if (!num) {
-      h += ev.checkinOpen
-        ? `<div class="pcard"><p>${(ev.fields || []).length ? '아래 정보를 입력하고 체크인하면<br>' : '참석 체크인을 하면<br>'}경품 추첨 번호가 <b>무작위로</b> 발급됩니다.</p>${formHTML()}<button class="big pri" data-a="checkin" ${busy ? 'disabled' : ''}>${busy ? '번호 발급 중…' : '참석 체크인 · 경품번호 받기'}</button>${err ? `<p class="err">${esc(err)}</p>` : ''}</div>`
-        : `<div class="pcard">체크인이 마감되었습니다.<br>현장 운영요원에게 문의해 주세요.</div>`;
+      h += !ev.checkinOpen ? `<div class="pcard">체크인이 마감되었습니다.<br>현장 운영요원에게 문의해 주세요.</div>`
+        : !inDay() ? `<div class="pcard">체크인은 행사 당일(${esc(ev.eventDate || '날짜 미정')})에만 가능합니다.</div>`
+        : `<div class="pcard"><p>${(ev.fields || []).length ? '아래 정보를 입력하고 체크인하면<br>' : '참석 체크인을 하면<br>'}경품 추첨 번호가 <b>무작위로</b> 발급됩니다.</p>${formHTML()}${consentHTML()}<button class="big pri" data-a="checkin" ${busy ? 'disabled' : ''}>${busy ? '번호 발급 중…' : '참석 체크인 · 경품번호 받기'}</button>${err ? `<p class="err">${esc(err)}</p>` : ''}</div>`;
     } else {
       h += `<div class="ticket"><div class="lbl">내 경품번호</div><div class="tno">${pad(num)}</div>${entryLine()}<div class="hint">QR을 다시 찍어도 같은 번호가 표시됩니다.</div></div>`;
       if (win) {
@@ -324,11 +352,13 @@ async function attendeePage() {
     if (fid) { const el = document.getElementById('f_' + fid); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) { } } }
   }
   app.addEventListener('input', e => { const i = e.target.closest('[data-f]'); if (i) formVals[i.dataset.f] = i.value; });
+  app.addEventListener('change', e => { if (e.target.id === 'consent') consent = e.target.checked; });
   app.addEventListener('click', async e => {
     const b = e.target.closest('[data-a]'); if (!b || busy) return;
     if (b.dataset.a === 'checkin') {
       const miss = (ev.fields || []).find(f => f.required && !(formVals[f.id] || '').trim());
       if (miss) { err = `${miss.label}을(를) 입력하세요`; render(); return; }
+      if ((ev.fields || []).length && !consent) { err = '개인정보 수집·이용에 동의해야 체크인할 수 있습니다'; render(); return; }
     }
     busy = true; err = ''; render();
     try {
@@ -367,6 +397,7 @@ async function home(u) {
   <div class="wrap"><div class="card-box"><h2>새 행사 만들기</h2>
   <div class="row"><input id="nName" placeholder="행사명 (예: 2026 군민 한마음 잔치)" style="flex:1;min-width:220px"></div>
   <div class="row"><label>최대 참석 인원(번호 범위) <input id="nMax" type="number" min="1" max="100000" value="500" style="width:110px"></label>
+  <label>행사 날짜 <input id="nDate" type="date" value="${todayKST()}"></label>
   <label>예비 당첨자 수 <input id="nRes" type="number" min="0" max="20" value="2" style="width:70px"></label>
   <button class="pri" id="bNew">만들기</button></div>
   <p class="mut">번호는 1 ~ 최대 인원 범위에서 무작위 발급됩니다. 실제 참석 예상 인원보다 여유 있게(예: 1.5배) 잡으면 발급이 더 빠릅니다. (최대 100,000)</p></div>
@@ -374,11 +405,13 @@ async function home(u) {
   $('#bOut').onclick = () => signOut(auth);
   $('#bNew').onclick = async () => {
     const name = $('#nName').value.trim(), max = Math.floor(+$('#nMax').value), res = Math.floor(+$('#nRes').value);
+    const ds = $('#nDate').value;
     if (!name) return toast('행사명을 입력하세요');
+    if (!ds) return toast('행사 날짜를 선택하세요');
     if (!(max >= 1 && max <= 100000)) return toast('최대 인원은 1~100000');
     const ref = doc(collection(db, 'events'));
     try {
-      await setDoc(ref, { name, adminUid: u.uid, adminEmails: [(u.email || '').toLowerCase()], fields: [{ id: 'org', label: '소속', required: true, show: true, mask: false }, { id: 'name', label: '이름', required: true, show: true, mask: true }], maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
+      await setDoc(ref, { ...dayTimes(ds), name, adminUid: u.uid, adminEmails: [(u.email || '').toLowerCase()], fields: [{ id: 'org', label: '소속', required: true, show: true, mask: false }, { id: 'name', label: '이름', required: true, show: true, mask: true }], maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
       location.hash = 'm=' + ref.id; manage(ref.id, u);
     } catch (e) { toast('생성 실패: ' + e.code); }
   };
@@ -400,7 +433,7 @@ async function manage(eid, u) {
   const evRef = doc(db, 'events', eid);
   const tcol = collection(db, 'events', eid, 'tickets'), wcol = collection(db, 'events', eid, 'wins');
   const winRef = n => doc(db, 'events', eid, 'wins', String(n));
-  const S = { ev: null, entries: new Map(), pfSig: '', wins: new Map(), pool: new Set(), lastSnap: null, present: null, mode: 'all', drawing: false, stage: null, init: false };
+  const S = { ev: null, seq: 0, entries: new Map(), pfSig: '', wins: new Map(), pool: new Set(), lastSnap: null, present: null, mode: 'all', drawing: false, stage: null, init: false };
   let first;
   try { first = await getDoc(evRef); } catch (e) { first = null; }
   if (!first || !first.exists() || !isAdminOf(first.data(), u)) {
@@ -424,6 +457,7 @@ async function manage(eid, u) {
   </section>
   <section class="col">
     <div class="card-box"><h2>📲 QR 체크인</h2>
+      <div id="dateWarn" class="mut" style="margin-bottom:8px"></div>
       <div class="qrbox"><div id="qr"></div><div style="flex:1;min-width:180px">
         <div class="stat"><div><span class="mut">체크인</span><b id="cIn">-</b></div><div><span class="mut">최대</span><b>${S.ev.maxCount}</b></div></div>
         <div class="row"><button id="bTog"></button><button id="bQrPng" class="pri">QR 이미지 저장(홍보물용)</button></div>
@@ -438,13 +472,14 @@ async function manage(eid, u) {
     </div>
     <div class="card-box"><h2>🧓 현장 등록 (폰 없는 분)</h2>
       <div id="proxyFields" class="row"></div>
+      <label class="row" style="font-size:13px"><input type="checkbox" id="pfConsent"> 입력하는 분께 개인정보 수집·이용(행사 후 자동 삭제)에 대한 동의를 받았습니다</label>
       <div class="row"><button class="pri" id="bProxy">무작위 번호 발급</button><input id="mNum" type="number" min="1" placeholder="종이 번호" style="width:110px"><button id="bManual">번호 직접 등록</button></div>
       <p class="mut">발급된 번호를 종이에 적어 전달하세요. 이미 나눠준 종이 번호는 직접 등록할 수 있습니다.</p>
     </div>
     <div class="card-box" id="cFields"><h2>📝 체크인 입력 항목</h2>
       <div id="fieldList"></div>
       <div class="row" style="margin-top:8px"><button class="sm" data-preset="소속">+ 소속</button><button class="sm" data-preset="이름">+ 이름</button><button class="sm" data-preset="연락처">+ 연락처</button><input id="fNew" placeholder="직접 입력 (예: 부서)" style="width:150px"><button class="sm pri" id="fAdd">추가</button></div>
-      <p class="mut">QR 체크인 시 참석자가 이 항목을 입력해야 번호가 발급됩니다. <b>표시</b>를 켠 항목만 무대 화면에 나오고, <b>마스킹</b>을 켜면 홍*동처럼 가려집니다. 입력된 정보는 본인과 관리자만 볼 수 있으니, 행사 후 아래 버튼으로 삭제하세요.</p>
+      <p class="mut">QR 체크인 시 참석자가 이 항목을 입력해야 번호가 발급됩니다. <b>표시</b>를 켠 항목만 무대 화면에 나오고, <b>마스킹</b>을 켜면 홍*동처럼 가려집니다. 입력된 정보는 본인과 관리자만 볼 수 있고, <b>행사 날짜가 끝나면 자동 삭제</b>됩니다(통상 24시간 이내, Firestore TTL 설정 필요). 즉시 지우려면 아래 버튼을 누르세요.</p>
       <button class="sm bad" id="bWipe">입력 정보 모두 삭제</button>
     </div>
     <div class="card-box"><h2>👥 관리자</h2>
@@ -453,6 +488,7 @@ async function manage(eid, u) {
       <p class="mut">추가된 분은 이 주소로 접속해 해당 Google 계정으로 로그인하면 이 행사를 함께 관리할 수 있습니다. 관리자 추가·삭제는 행사를 만든 계정만 할 수 있습니다.</p>
     </div>
     <div class="card-box"><h2>⚙️ 추첨 설정</h2>
+      <div class="row"><label>행사 날짜 <input id="sDate" type="date"></label><span class="mut">참석자 체크인·참석확인은 이 날짜 하루(한국시간 00시~24시)에만 가능하고, 입력된 개인정보는 이 날이 끝나면 자동 삭제 대상이 됩니다.</span></div>
       <div class="row"><label>추첨 대상</label>
         <label><input type="radio" name="mode" value="all" checked> 체크인 전체</label>
         <label><input type="radio" name="mode" value="present"> 참석 확인 명단</label></div>
@@ -473,8 +509,8 @@ async function manage(eid, u) {
   /* 실시간 구독 */
   cleanups.push(onSnapshot(evRef, s => {
     if (!s.exists()) return; S.ev = s.data();
-    if (!S.init) { S.init = true; $('#sRes').value = S.ev.reserveCount ?? 0; }
-    renderAll(); S.stage && S.stage.update(S.ev.live || null);
+    if (!S.init) { S.init = true; $('#sRes').value = S.ev.reserveCount ?? 0; $('#sDate').value = S.ev.eventDate || ''; }
+    renderAll(); pushStage();
   }));
   cleanups.push(onSnapshot(wcol, qs => { S.wins = new Map(qs.docs.map(d => [Number(d.id), d.data()])); renderResults(); renderPrizes();
     const miss = [...S.wins.keys()].filter(n => !S.entries.has(n)); if (miss.length) getEntries(miss).then(renderResults);
@@ -485,7 +521,19 @@ async function manage(eid, u) {
     $('#bTog').textContent = ev.checkinOpen ? '체크인 마감하기' : '체크인 다시 열기';
     $('#pRound').textContent = p.round; $('#pState').textContent = p.open ? '확인 중 🟢' : (p.round ? '마감됨' : '미시작');
     renderPrizes(); renderAdmins(); renderFields();
+    const dw = $('#dateWarn');
+    dw.className = S.ev.startAt ? 'mut' : 'err';
+    dw.textContent = S.ev.startAt ? `체크인·참석확인은 ${S.ev.eventDate} 하루 동안만 가능합니다.` : '⚠ 행사 날짜가 없어 참석자 체크인이 막혀 있습니다. 아래 추첨 설정에서 행사 날짜를 지정하세요.';
   }
+  function pushStage() {
+    if (!S.stage) return; const my = ++S.seq;
+    resolveLive(eid, S.ev.live || null).then(l => { if (S.stage && my === S.seq) S.stage.update(l); });
+  }
+  $('#sDate').onchange = async () => {
+    const ds = $('#sDate').value; if (!ds) return;
+    if (!confirm(`행사 날짜를 ${ds}로 변경할까요? 참석자 체크인이 이 날 하루만 가능해집니다.`)) { $('#sDate').value = S.ev.eventDate || ''; return; }
+    try { await updateDoc(evRef, dayTimes(ds)); toast('행사 날짜를 저장했습니다'); } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  };
   const myEmail = (u.email || '').toLowerCase();
   function renderAdmins() {
     const owner = S.ev.adminUid === u.uid, L = S.ev.adminEmails || [];
@@ -549,7 +597,8 @@ async function manage(eid, u) {
     }
   }
   const pf = () => { const o = {}; document.querySelectorAll('#proxyFields [data-pf]').forEach(i => { const v = i.value.trim(); if (v) o[i.dataset.pf] = v; }); return o; };
-  const clearPf = () => document.querySelectorAll('#proxyFields [data-pf]').forEach(i => i.value = '');
+  const clearPf = () => { document.querySelectorAll('#proxyFields [data-pf]').forEach(i => i.value = ''); $('#pfConsent').checked = false; };
+  const pfOk = f => !Object.keys(f).length || $('#pfConsent').checked || (toast('개인정보 수집·이용 동의 확인란을 체크하세요'), false);
   const saveFields = L => updateDoc(evRef, { fields: L });
   $('#fieldList').onchange = async e => {
     const row = e.target.closest('[data-fid]'); if (!row) return; const k = e.target.dataset.k;
@@ -574,9 +623,9 @@ async function manage(eid, u) {
   $('#bWipe').onclick = async () => {
     if (!confirm('참석자가 입력한 소속·이름 등 정보를 모두 삭제합니다. 경품번호와 당첨 결과는 유지되지만 당첨자의 이름 표시는 사라집니다. 계속할까요?')) return;
     try {
-      const ds = (await getDocs(collection(db, 'events', eid, 'entries'))).docs;
+      const ds = [...(await getDocs(collection(db, 'events', eid, 'entries'))).docs, ...(await getDocs(collection(db, 'events', eid, 'liveinfo'))).docs];
       for (let i = 0; i < ds.length; i += 400) { const b = writeBatch(db); ds.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); }
-      S.entries.clear(); renderResults(); toast(`${ds.length}건을 삭제했습니다`);
+      liveInfoCache.clear(); S.entries.clear(); renderResults(); toast(`${ds.length}건을 삭제했습니다`);
     } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
   };
 
@@ -623,7 +672,9 @@ async function manage(eid, u) {
       winners.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'won', order: i + 1, claimed: false, t: serverTimestamp() }]));
       reserve.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'reserve', order: i + 1, claimed: false, t: serverTimestamp() }]));
       for (let i = 0; i < ops.length; i += 400) { const b = writeBatch(db); ops.slice(i, i + 400).forEach(([r, d]) => b.set(r, d)); await b.commit(); }
-      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', title: prize.name, numbers: winners, info: winners.map(n => infoStr(S.entries.get(n), true)), reserve, t: Date.now() } });
+      const infoArr = winners.map(n => infoStr(S.entries.get(n), true)), hasInfo = infoArr.some(Boolean);
+      if (hasInfo) await setDoc(doc(db, 'events', eid, 'liveinfo', String(id)), { info: infoArr, expireAt: S.ev.purgeAt || new Date(Date.now() + 864e5), t: serverTimestamp() });
+      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', title: prize.name, numbers: winners, hasInfo, reserve, t: Date.now() } });
     } catch (e) { toast(e.message || ('오류: ' + e.code)); }
     finally { S.drawing = false; renderPrizes(); }
   }
@@ -638,7 +689,9 @@ async function manage(eid, u) {
       else { const el = await eligible(); if (el.length) { promoted = sample(el, 1)[0]; b.set(winRef(promoted), { n: promoted, prizeId: w.prizeId, prizeName: w.prizeName, status: 'won', order: w.order, claimed: false, promoted: true, t: serverTimestamp() }); } }
       if (promoted != null) {
         await getEntries([promoted]);
-        b.update(evRef, { live: { id: (S.ev.live?.id || 0) + 1, phase: 'done', instant: true, title: w.prizeName + ' · 불참 승계', numbers: [promoted], info: [infoStr(S.entries.get(promoted), true)], reserve: [], t: Date.now() } });
+        const nid = (S.ev.live?.id || 0) + 1, inf = infoStr(S.entries.get(promoted), true);
+        if (inf) b.set(doc(db, 'events', eid, 'liveinfo', String(nid)), { info: [inf], expireAt: S.ev.purgeAt || new Date(Date.now() + 864e5), t: serverTimestamp() });
+        b.update(evRef, { live: { id: nid, phase: 'done', instant: true, title: w.prizeName + ' · 불참 승계', numbers: [promoted], hasInfo: !!inf, reserve: [], t: Date.now() } });
       }
       await b.commit(); toast(promoted != null ? `${pad(promoted)}번이 승계되었습니다` : '승계할 대상이 없습니다');
     } catch (e) { toast('오류: ' + (e.code || e.message)); }
@@ -686,7 +739,7 @@ async function manage(eid, u) {
     cleanOverlay();
     const ov = document.createElement('div'); ov.className = 'overlay stagebg';
     ov.innerHTML = '<button class="ov-close">✕ 닫기 (Esc)</button><div class="stage-root"></div>'; document.body.appendChild(ov);
-    S.stage = makeStage($('.stage-root', ov), () => S.ev); S.stage.update(S.ev.live || null);
+    S.stage = makeStage($('.stage-root', ov), () => S.ev); pushStage();
     ov.requestFullscreen?.().catch(() => { });
     const close = () => cleanOverlay(); $('.ov-close', ov).onclick = close;
     ov.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) close(); });
@@ -727,11 +780,12 @@ async function manage(eid, u) {
     return runTransaction(db, async tx => {
       const r = doc(tcol, String(n)), s = await tx.get(r); if (s.exists()) return false;
       tx.set(r, { uid: u.uid, t: serverTimestamp(), presentRound: 0, proxy: true });
-      if (f && Object.keys(f).length) tx.set(doc(db, 'events', eid, 'entries', String(n)), { uid: u.uid, f, t: serverTimestamp() });
+      if (f && Object.keys(f).length) tx.set(doc(db, 'events', eid, 'entries', String(n)), { uid: u.uid, f, consent: true, t: serverTimestamp(), expireAt: S.ev.purgeAt || new Date(Date.now() + 864e5) });
       return true;
     });
   }
   $('#bProxy').onclick = async () => {
+    if (!pfOk(pf())) return;
     try {
       for (let k = 0; k < 30; k++) { const n = randInt(1, MAX); if (await regTicket(n, pf())) { clearPf(); return showNum(n); } }
       toast('빈 번호를 찾지 못했습니다. 최대 인원을 확인하세요.');
@@ -739,6 +793,7 @@ async function manage(eid, u) {
   };
   $('#bManual').onclick = async () => {
     const n = Math.floor(+$('#mNum').value); if (!(n >= 1 && n <= MAX)) return toast(`1~${MAX} 범위의 번호를 입력하세요`);
+    if (!pfOk(pf())) return;
     try { if (await regTicket(n, pf())) { clearPf(); toast(`${pad(n)}번 등록 완료`); $('#mNum').value = ''; counts(); } else toast('이미 등록된 번호입니다'); }
     catch (e) { toast('오류: ' + (e.code || e.message)); }
   };
