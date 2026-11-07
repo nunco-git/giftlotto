@@ -71,6 +71,8 @@ body.phone{background:linear-gradient(#14213d,#2a4380 60%,#f3f5f9 60%);min-heigh
 .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px}
 .chip{background:#eef1f8;border-radius:8px;padding:3px 9px;font-weight:700;font-variant-numeric:tabular-nums}
 .chip.me{background:#f4b400;color:#14213d}
+.fl{display:block;text-align:left;margin:10px 0;font-weight:700}
+.fl input{width:100%;margin-top:4px;font-size:16px;font-weight:400}
 /* stage */
 .stagebg,body.stage{background:radial-gradient(circle at 50% 30%,#22386e,#0a1228 70%);color:#fff}
 body.stage{min-height:100vh;overflow:hidden}
@@ -84,13 +86,16 @@ body.stage{min-height:100vh;overflow:hidden}
 .cards.s3{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .cards.s4{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
 .cards.s5{grid-template-columns:repeat(auto-fit,minmax(86px,1fr))}
-.cards .card{background:linear-gradient(#fff,#e3e9f8);color:#14213d;border-radius:16px;font-weight:900;font-variant-numeric:tabular-nums;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.cards .card{background:linear-gradient(#fff,#e3e9f8);color:#14213d;border-radius:16px;font-weight:900;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;gap:.15em;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .s1 .card{font-size:clamp(48px,9vw,140px);padding:2vh 1vw}
 .s2 .card{font-size:clamp(32px,5vw,76px);padding:1.5vh .5vw}
 .s3 .card{font-size:clamp(24px,3.4vw,52px);padding:1vh .4vw}
 .s4 .card{font-size:clamp(20px,2.4vw,36px);padding:.8vh .3vw}
 .s5 .card{font-size:clamp(16px,1.8vw,26px);padding:.6vh .2vw}
 .card.locked{background:linear-gradient(#ffe58f,#ffc53d);animation:pop .4s}
+.card small{font-size:.3em;font-weight:700;line-height:1.2;text-align:center;opacity:.85}
+.card:not(.locked) small{visibility:hidden}
+.s4 .card small,.s5 .card small{display:none}
 .st-reserve{margin-top:3vh;font-size:clamp(14px,1.8vw,26px);opacity:.9}
 .st-reserve b{color:#ffd666;margin:0 .4em;font-variant-numeric:tabular-nums}
 .st-qr{background:#fff;padding:16px;border-radius:16px;display:inline-block;margin:3vh 0 2vh}
@@ -177,8 +182,8 @@ function makeStage(root, getEv) {
   let timer = null, tok = 0, prevRolling = 0, lastKey = '', destroyed = false;
   const clear = () => { clearInterval(timer); timer = null; };
   const sizeClass = n => n <= 4 ? 's1' : n <= 10 ? 's2' : n <= 24 ? 's3' : n <= 60 ? 's4' : 's5';
-  const cardsHTML = (n, vals) => `<div class="cardsw"><div class="cards ${sizeClass(n)}">` +
-    Array.from({ length: n }, (_, i) => `<div class="card"><span>${vals ? pad(vals[i]) : rnd()}</span></div>`).join('') + `</div></div>`;
+  const cardsHTML = (n, vals, infos) => `<div class="cardsw"><div class="cards ${sizeClass(n)}">` +
+    Array.from({ length: n }, (_, i) => `<div class="card"><span>${vals ? pad(vals[i]) : rnd()}</span>${infos && infos[i] ? `<small>${esc(infos[i])}</small>` : ''}</div>`).join('') + `</div></div>`;
   const reserveHTML = r => r && r.length ? `<div class="st-reserve">예비 당첨 ${r.map(n => `<b>${pad(n)}</b>`).join('')}</div>` : '';
   function idle() {
     clear(); const ev = getEv() || {};
@@ -193,12 +198,12 @@ function makeStage(root, getEv) {
   }
   function showStatic(live) {
     clear();
-    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">🎉 당첨을 축하합니다 🎉</div>${cardsHTML(live.numbers.length, live.numbers)}${reserveHTML(live.reserve)}`;
+    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">🎉 당첨을 축하합니다 🎉</div>${cardsHTML(live.numbers.length, live.numbers, live.info)}${reserveHTML(live.reserve)}`;
     root.querySelectorAll('.card').forEach(c => c.classList.add('locked'));
   }
   function reveal(live) {
     clear(); const my = tok, nums = live.numbers;
-    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">🎉 당첨을 축하합니다 🎉</div>${cardsHTML(nums.length)}`;
+    root.innerHTML = `<div class="st-title">${esc(live.title)}</div><div class="st-sub">🎉 당첨을 축하합니다 🎉</div>${cardsHTML(nums.length, null, live.info)}`;
     const cards = [...root.querySelectorAll('.card')], spans = cards.map(c => c.firstElementChild);
     let locked = 0; const gap = Math.max(40, Math.min(500, 3500 / Math.max(1, nums.length)));
     timer = setInterval(() => { for (let i = locked; i < spans.length; i++) spans[i].textContent = rnd(); }, 70);
@@ -246,8 +251,11 @@ async function attendeePage() {
   if (!s.exists()) { app.innerHTML = '<div class="ph"><div class="pcard">존재하지 않는 행사입니다.</div></div>'; return; }
   let ev = s.data(); MAX = ev.maxCount; DIGITS = String(MAX).length;
   const uid = auth.currentUser.uid, uref = doc(db, 'events', EID, 'users', uid);
-  let num = null, ticket = null, win = null, busy = false, err = '', subbed = false;
+  let num = null, ticket = null, win = null, busy = false, err = '', subbed = false, entry = null;
+  const formVals = {};
   const us = await getDoc(uref); if (us.exists()) num = us.data().number;
+  if (num) { try { const es = await getDoc(doc(db, 'events', EID, 'entries', String(num))); if (es.exists()) entry = es.data().f || {}; } catch (e) { } }
+  const collectVals = () => { const o = {}; (ev.fields || []).forEach(f => { const v = (formVals[f.id] || '').trim(); if (v) o[f.id] = v; }); return o; };
 
   function sub() {
     if (!num || subbed) return; subbed = true;
@@ -255,6 +263,7 @@ async function attendeePage() {
     onSnapshot(doc(db, 'events', EID, 'wins', String(num)), d => { win = d.exists() ? d.data() : null; render(); });
   }
   async function checkin() {
+    const fv = collectVals();
     for (let k = 0; k < 15; k++) {
       try {
         const n = await runTransaction(db, async tx => {
@@ -264,6 +273,7 @@ async function attendeePage() {
           const snaps = await Promise.all(arr.map(x => tx.get(doc(db, 'events', EID, 'tickets', String(x)))));
           const i = snaps.findIndex(z => !z.exists()); if (i < 0) return null;
           tx.set(doc(db, 'events', EID, 'tickets', String(arr[i])), { uid, t: serverTimestamp(), presentRound: 0 });
+          if (Object.keys(fv).length) tx.set(doc(db, 'events', EID, 'entries', String(arr[i])), { uid, f: fv, t: serverTimestamp() });
           tx.set(uref, { number: arr[i], t: serverTimestamp() });
           return arr[i];
         });
@@ -275,15 +285,22 @@ async function attendeePage() {
     }
     throw new Error('retry');
   }
+  function formHTML() {
+    return (ev.fields || []).map(f => `<label class="fl">${esc(f.label)}${f.required ? ' <span class="err">*</span>' : ''}<input data-f="${f.id}" id="f_${f.id}" maxlength="30" autocomplete="off" value="${esc(formVals[f.id] || '')}"></label>`).join('');
+  }
+  function entryLine() {
+    const t = (ev.fields || []).map(f => entry && entry[f.id]).filter(Boolean).join(' · ');
+    return t ? `<div style="font-weight:700;margin:4px 0">${esc(t)}</div>` : '';
+  }
   function render() {
     const live = ev.live, pres = ev.presence || {};
     let h = `<div class="ph"><div class="ph-head">🎁 ${esc(ev.name)}</div>`;
     if (!num) {
       h += ev.checkinOpen
-        ? `<div class="pcard"><p>참석 체크인을 하면<br>경품 추첨 번호가 <b>무작위로</b> 발급됩니다.</p><button class="big pri" data-a="checkin" ${busy ? 'disabled' : ''}>${busy ? '번호 발급 중…' : '참석 체크인 · 경품번호 받기'}</button>${err ? `<p class="err">${esc(err)}</p>` : ''}</div>`
+        ? `<div class="pcard"><p>${(ev.fields || []).length ? '아래 정보를 입력하고 체크인하면<br>' : '참석 체크인을 하면<br>'}경품 추첨 번호가 <b>무작위로</b> 발급됩니다.</p>${formHTML()}<button class="big pri" data-a="checkin" ${busy ? 'disabled' : ''}>${busy ? '번호 발급 중…' : '참석 체크인 · 경품번호 받기'}</button>${err ? `<p class="err">${esc(err)}</p>` : ''}</div>`
         : `<div class="pcard">체크인이 마감되었습니다.<br>현장 운영요원에게 문의해 주세요.</div>`;
     } else {
-      h += `<div class="ticket"><div class="lbl">내 경품번호</div><div class="tno">${pad(num)}</div><div class="hint">QR을 다시 찍어도 같은 번호가 표시됩니다.</div></div>`;
+      h += `<div class="ticket"><div class="lbl">내 경품번호</div><div class="tno">${pad(num)}</div>${entryLine()}<div class="hint">QR을 다시 찍어도 같은 번호가 표시됩니다.</div></div>`;
       if (win) {
         if (win.status === 'won') h += `<div class="win"><div>🎉 축하합니다! 당첨되었습니다</div><div class="t">${esc(win.prizeName)}</div><div>${win.claimed ? '✅ 수령 완료' : '이 화면을 수령처에서 보여주세요'}</div></div>`;
         else if (win.status === 'reserve') h += `<div class="win res"><div>예비 당첨 ${win.order}순위</div><div>당첨자가 불참하면 순서대로 승계됩니다<br>(${esc(win.prizeName)})</div></div>`;
@@ -302,13 +319,20 @@ async function attendeePage() {
         h += `<div class="pcard"><div class="mut">최근 추첨</div><b style="font-size:20px">${esc(live.title)}</b><div class="chips">${nums.slice(0, 40).map(n => `<span class="chip ${n === num ? 'me' : ''}">${pad(n)}</span>`).join('')}${nums.length > 40 ? `<span class="mut">외 ${nums.length - 40}명</span>` : ''}</div></div>`;
       }
     }
+    const ae = document.activeElement, fid = ae && ae.dataset && ae.dataset.f, pos = fid ? ae.selectionStart : 0;
     app.innerHTML = h + '</div>';
+    if (fid) { const el = document.getElementById('f_' + fid); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) { } } }
   }
+  app.addEventListener('input', e => { const i = e.target.closest('[data-f]'); if (i) formVals[i.dataset.f] = i.value; });
   app.addEventListener('click', async e => {
     const b = e.target.closest('[data-a]'); if (!b || busy) return;
+    if (b.dataset.a === 'checkin') {
+      const miss = (ev.fields || []).find(f => f.required && !(formVals[f.id] || '').trim());
+      if (miss) { err = `${miss.label}을(를) 입력하세요`; render(); return; }
+    }
     busy = true; err = ''; render();
     try {
-      if (b.dataset.a === 'checkin') { num = await checkin(); sub(); }
+      if (b.dataset.a === 'checkin') { num = await checkin(); entry = collectVals(); sub(); }
       if (b.dataset.a === 'present') await updateDoc(doc(db, 'events', EID, 'tickets', String(num)), { presentRound: ev.presence.round });
     } catch (ex) {
       err = ex.code === 'permission-denied' ? '지금은 처리할 수 없습니다. (마감되었거나 권한 없음)' : '일시적인 오류입니다. 다시 눌러주세요.';
@@ -354,7 +378,7 @@ async function home(u) {
     if (!(max >= 1 && max <= 100000)) return toast('최대 인원은 1~100000');
     const ref = doc(collection(db, 'events'));
     try {
-      await setDoc(ref, { name, adminUid: u.uid, adminEmails: [(u.email || '').toLowerCase()], maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
+      await setDoc(ref, { name, adminUid: u.uid, adminEmails: [(u.email || '').toLowerCase()], fields: [{ id: 'org', label: '소속', required: true, show: true, mask: false }, { id: 'name', label: '이름', required: true, show: true, mask: true }], maxCount: max, reserveCount: Math.max(0, res || 0), checkinOpen: true, presence: { round: 0, open: false }, prizes: [], live: null, created: serverTimestamp() });
       location.hash = 'm=' + ref.id; manage(ref.id, u);
     } catch (e) { toast('생성 실패: ' + e.code); }
   };
@@ -376,7 +400,7 @@ async function manage(eid, u) {
   const evRef = doc(db, 'events', eid);
   const tcol = collection(db, 'events', eid, 'tickets'), wcol = collection(db, 'events', eid, 'wins');
   const winRef = n => doc(db, 'events', eid, 'wins', String(n));
-  const S = { ev: null, wins: new Map(), pool: new Set(), lastSnap: null, present: null, mode: 'all', drawing: false, stage: null, init: false };
+  const S = { ev: null, entries: new Map(), pfSig: '', wins: new Map(), pool: new Set(), lastSnap: null, present: null, mode: 'all', drawing: false, stage: null, init: false };
   let first;
   try { first = await getDoc(evRef); } catch (e) { first = null; }
   if (!first || !first.exists() || !isAdminOf(first.data(), u)) {
@@ -396,7 +420,7 @@ async function manage(eid, u) {
       <div id="prizeList"></div>
       <div class="row" style="margin-top:12px"><button class="big pri" id="drawNext">▶ 다음 상품 추첨</button></div>
     </div>
-    <div class="card-box"><h2>🏆 추첨 결과</h2><div class="row"><button id="bXlsx">엑셀로 저장</button><span class="mut">불참 시 [불참→승계] 버튼으로 예비 당첨자에게 즉시 넘어갑니다.</span></div><div id="results"></div></div>
+    <div class="card-box"><h2>🏆 추첨 결과</h2><div class="row"><button id="bXlsx">당첨 결과 엑셀</button><button id="bXlsxAll">참석자 명단 엑셀</button><span class="mut">불참 시 [불참→승계] 버튼으로 예비 당첨자에게 즉시 넘어갑니다.</span></div><div id="results"></div></div>
   </section>
   <section class="col">
     <div class="card-box"><h2>📲 QR 체크인</h2>
@@ -413,8 +437,15 @@ async function manage(eid, u) {
       <p class="mut">추첨 직전에 시작 → 참석자 폰의 [지금 자리에 있어요]를 누른 사람만 추첨 대상으로 확정할 수 있습니다.</p>
     </div>
     <div class="card-box"><h2>🧓 현장 등록 (폰 없는 분)</h2>
+      <div id="proxyFields" class="row"></div>
       <div class="row"><button class="pri" id="bProxy">무작위 번호 발급</button><input id="mNum" type="number" min="1" placeholder="종이 번호" style="width:110px"><button id="bManual">번호 직접 등록</button></div>
       <p class="mut">발급된 번호를 종이에 적어 전달하세요. 이미 나눠준 종이 번호는 직접 등록할 수 있습니다.</p>
+    </div>
+    <div class="card-box" id="cFields"><h2>📝 체크인 입력 항목</h2>
+      <div id="fieldList"></div>
+      <div class="row" style="margin-top:8px"><button class="sm" data-preset="소속">+ 소속</button><button class="sm" data-preset="이름">+ 이름</button><button class="sm" data-preset="연락처">+ 연락처</button><input id="fNew" placeholder="직접 입력 (예: 부서)" style="width:150px"><button class="sm pri" id="fAdd">추가</button></div>
+      <p class="mut">QR 체크인 시 참석자가 이 항목을 입력해야 번호가 발급됩니다. <b>표시</b>를 켠 항목만 무대 화면에 나오고, <b>마스킹</b>을 켜면 홍*동처럼 가려집니다. 입력된 정보는 본인과 관리자만 볼 수 있으니, 행사 후 아래 버튼으로 삭제하세요.</p>
+      <button class="sm bad" id="bWipe">입력 정보 모두 삭제</button>
     </div>
     <div class="card-box"><h2>👥 관리자</h2>
       <div id="adminList"></div>
@@ -445,13 +476,15 @@ async function manage(eid, u) {
     if (!S.init) { S.init = true; $('#sRes').value = S.ev.reserveCount ?? 0; }
     renderAll(); S.stage && S.stage.update(S.ev.live || null);
   }));
-  cleanups.push(onSnapshot(wcol, qs => { S.wins = new Map(qs.docs.map(d => [Number(d.id), d.data()])); renderResults(); renderPrizes(); }));
+  cleanups.push(onSnapshot(wcol, qs => { S.wins = new Map(qs.docs.map(d => [Number(d.id), d.data()])); renderResults(); renderPrizes();
+    const miss = [...S.wins.keys()].filter(n => !S.entries.has(n)); if (miss.length) getEntries(miss).then(renderResults);
+  }));
 
   function renderAll() {
     const ev = S.ev, p = ev.presence || { round: 0, open: false };
     $('#bTog').textContent = ev.checkinOpen ? '체크인 마감하기' : '체크인 다시 열기';
     $('#pRound').textContent = p.round; $('#pState').textContent = p.open ? '확인 중 🟢' : (p.round ? '마감됨' : '미시작');
-    renderPrizes(); renderAdmins();
+    renderPrizes(); renderAdmins(); renderFields();
   }
   const myEmail = (u.email || '').toLowerCase();
   function renderAdmins() {
@@ -486,10 +519,66 @@ async function manage(eid, u) {
     for (const p of (S.ev.prizes || [])) {
       const ws = (by.get(p.id) || []).sort((a, b) => rank[a.status] - rank[b.status] || a.order - b.order); if (!ws.length) continue;
       h += `<div class="phead">${esc(p.name)} <span class="tag">${p.count}명</span><span class="grow"></span><button class="sm bad" data-a="undo" data-id="${p.id}">추첨 되돌리기</button></div>`;
-      h += ws.map(w => `<div class="wrow ${w.status}"><span class="num">${pad(w.n)}</span><span class="tag">${w.status === 'won' ? (w.promoted ? '당첨(승계)' : '당첨') : w.status === 'reserve' ? '예비' + w.order : '불참'}</span><span class="grow"></span>${w.status === 'won' ? `<label><input type="checkbox" data-a="claim" data-n="${w.n}" ${w.claimed ? 'checked' : ''}> 수령</label><button class="sm bad" data-a="absent" data-n="${w.n}">불참→승계</button>` : ''}</div>`).join('');
+      h += ws.map(w => `<div class="wrow ${w.status}"><span class="num">${pad(w.n)}</span><span class="mut">${esc(infoStr(S.entries.get(w.n), false))}</span><span class="tag">${w.status === 'won' ? (w.promoted ? '당첨(승계)' : '당첨') : w.status === 'reserve' ? '예비' + w.order : '불참'}</span><span class="grow"></span>${w.status === 'won' ? `<label><input type="checkbox" data-a="claim" data-n="${w.n}" ${w.claimed ? 'checked' : ''}> 수령</label><button class="sm bad" data-a="absent" data-n="${w.n}">불참→승계</button>` : ''}</div>`).join('');
     }
     $('#results').innerHTML = h || '<p class="mut">아직 추첨 결과가 없습니다.</p>';
   }
+
+  /* 체크인 입력 항목 · 참석자 정보 */
+  const fieldsOf = () => S.ev.fields || [];
+  const maskName = s => { const a = [...String(s)]; return a.length <= 1 ? String(s) : a.length === 2 ? a[0] + '*' : a[0] + '*'.repeat(a.length - 2) + a[a.length - 1]; };
+  function infoStr(f, stage) {
+    return fieldsOf().filter(x => (!stage || x.show) && f && f[x.id]).map(x => stage && x.mask ? maskName(f[x.id]) : f[x.id]).join(stage ? ' ' : ' · ');
+  }
+  async function getEntries(nums) {
+    const need = nums.filter(n => !S.entries.has(n));
+    for (let i = 0; i < need.length; i += 50) await Promise.all(need.slice(i, i + 50).map(async n => {
+      try { const s = await getDoc(doc(db, 'events', eid, 'entries', String(n))); S.entries.set(n, s.exists() ? (s.data().f || {}) : {}); }
+      catch (e) { S.entries.set(n, {}); }
+    }));
+  }
+  function renderFields() {
+    const L = fieldsOf(), fl = $('#fieldList');
+    if (!fl.contains(document.activeElement)) {
+      fl.innerHTML = L.length ? '<div class="mut" style="margin-bottom:4px">항목명 · 필수 · 무대 표시 · 가운데 마스킹</div>' + L.map(f => `<div class="prow" data-fid="${f.id}"><input data-k="label" value="${esc(f.label)}" style="flex:1;min-width:90px"><label><input type="checkbox" data-k="required" ${f.required ? 'checked' : ''}> 필수</label><label><input type="checkbox" data-k="show" ${f.show ? 'checked' : ''}> 표시</label><label><input type="checkbox" data-k="mask" ${f.mask ? 'checked' : ''}> 마스킹</label><button class="sm bad" data-del="${f.id}">삭제</button></div>`).join('') : '<p class="mut">입력 항목이 없으면 QR 체크인 즉시 번호만 발급됩니다.</p>';
+    }
+    const sig = JSON.stringify(L.map(f => [f.id, f.label]));
+    if (sig !== S.pfSig && !$('#proxyFields').contains(document.activeElement)) {
+      S.pfSig = sig;
+      $('#proxyFields').innerHTML = L.map(f => `<input data-pf="${f.id}" placeholder="${esc(f.label)}" maxlength="30" style="flex:1;min-width:90px">`).join('');
+    }
+  }
+  const pf = () => { const o = {}; document.querySelectorAll('#proxyFields [data-pf]').forEach(i => { const v = i.value.trim(); if (v) o[i.dataset.pf] = v; }); return o; };
+  const clearPf = () => document.querySelectorAll('#proxyFields [data-pf]').forEach(i => i.value = '');
+  const saveFields = L => updateDoc(evRef, { fields: L });
+  $('#fieldList').onchange = async e => {
+    const row = e.target.closest('[data-fid]'); if (!row) return; const k = e.target.dataset.k;
+    const L = fieldsOf().map(f => f.id === row.dataset.fid ? { ...f, [k]: k === 'label' ? (e.target.value.trim() || f.label) : e.target.checked } : f);
+    try { await saveFields(L); } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  };
+  $('#fieldList').onclick = async e => {
+    const b = e.target.closest('[data-del]'); if (!b || !confirm('이 입력 항목을 삭제할까요? (이미 입력된 값은 남아 있습니다)')) return;
+    try { await saveFields(fieldsOf().filter(f => f.id !== b.dataset.del)); } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  };
+  async function addField(label, o = {}) {
+    label = label.trim(); if (!label) return;
+    if (fieldsOf().length >= 6) return toast('입력 항목은 최대 6개입니다');
+    try { await saveFields([...fieldsOf(), { id: Math.random().toString(36).slice(2, 8), label, required: true, show: true, mask: label === '이름', ...o }]); }
+    catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  }
+  $('#cFields').addEventListener('click', e => {
+    const p = e.target.closest('[data-preset]'); if (!p) return;
+    addField(p.dataset.preset, p.dataset.preset === '연락처' ? { show: false, mask: false, required: false } : {});
+  });
+  $('#fAdd').onclick = () => { addField($('#fNew').value); $('#fNew').value = ''; };
+  $('#bWipe').onclick = async () => {
+    if (!confirm('참석자가 입력한 소속·이름 등 정보를 모두 삭제합니다. 경품번호와 당첨 결과는 유지되지만 당첨자의 이름 표시는 사라집니다. 계속할까요?')) return;
+    try {
+      const ds = (await getDocs(collection(db, 'events', eid, 'entries'))).docs;
+      for (let i = 0; i < ds.length; i += 400) { const b = writeBatch(db); ds.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); }
+      S.entries.clear(); renderResults(); toast(`${ds.length}건을 삭제했습니다`);
+    } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
+  };
 
   /* 집계 */
   async function counts() {
@@ -526,6 +615,7 @@ async function manage(eid, u) {
       const resv = +$('#sRes').value || 0;
       const picks = sample(el, Math.min(el.length, prize.count + resv));
       const winners = picks.slice(0, prize.count), reserve = picks.slice(prize.count);
+      await getEntries(winners);
       const id = (S.ev.live?.id || 0) + 1;
       await updateDoc(evRef, { live: { id, phase: 'rolling', title: prize.name, count: winners.length, t: Date.now() } });
       await sleep(Math.max(1, rollSec()) * 1000 + Math.min(winners.length * 20, 2000));
@@ -533,7 +623,7 @@ async function manage(eid, u) {
       winners.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'won', order: i + 1, claimed: false, t: serverTimestamp() }]));
       reserve.forEach((n, i) => ops.push([winRef(n), { n, prizeId: prize.id, prizeName: prize.name, status: 'reserve', order: i + 1, claimed: false, t: serverTimestamp() }]));
       for (let i = 0; i < ops.length; i += 400) { const b = writeBatch(db); ops.slice(i, i + 400).forEach(([r, d]) => b.set(r, d)); await b.commit(); }
-      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', title: prize.name, numbers: winners, reserve, t: Date.now() } });
+      await updateDoc(evRef, { prizes: S.ev.prizes.map(p => p.id === prize.id ? { ...p, done: true } : p), live: { id, phase: 'done', title: prize.name, numbers: winners, info: winners.map(n => infoStr(S.entries.get(n), true)), reserve, t: Date.now() } });
     } catch (e) { toast(e.message || ('오류: ' + e.code)); }
     finally { S.drawing = false; renderPrizes(); }
   }
@@ -546,7 +636,10 @@ async function manage(eid, u) {
       const res = [...S.wins.values()].filter(x => x.prizeId === w.prizeId && x.status === 'reserve').sort((a, c) => a.order - c.order)[0];
       if (res) { b.update(winRef(res.n), { status: 'won', promoted: true }); promoted = res.n; }
       else { const el = await eligible(); if (el.length) { promoted = sample(el, 1)[0]; b.set(winRef(promoted), { n: promoted, prizeId: w.prizeId, prizeName: w.prizeName, status: 'won', order: w.order, claimed: false, promoted: true, t: serverTimestamp() }); } }
-      if (promoted != null) b.update(evRef, { live: { id: (S.ev.live?.id || 0) + 1, phase: 'done', instant: true, title: w.prizeName + ' · 불참 승계', numbers: [promoted], reserve: [], t: Date.now() } });
+      if (promoted != null) {
+        await getEntries([promoted]);
+        b.update(evRef, { live: { id: (S.ev.live?.id || 0) + 1, phase: 'done', instant: true, title: w.prizeName + ' · 불참 승계', numbers: [promoted], info: [infoStr(S.entries.get(promoted), true)], reserve: [], t: Date.now() } });
+      }
       await b.commit(); toast(promoted != null ? `${pad(promoted)}번이 승계되었습니다` : '승계할 대상이 없습니다');
     } catch (e) { toast('오류: ' + (e.code || e.message)); }
   }
@@ -630,21 +723,23 @@ async function manage(eid, u) {
   };
 
   /* 현장 등록 */
-  async function regTicket(n) {
+  async function regTicket(n, f) {
     return runTransaction(db, async tx => {
       const r = doc(tcol, String(n)), s = await tx.get(r); if (s.exists()) return false;
-      tx.set(r, { uid: u.uid, t: serverTimestamp(), presentRound: 0, proxy: true }); return true;
+      tx.set(r, { uid: u.uid, t: serverTimestamp(), presentRound: 0, proxy: true });
+      if (f && Object.keys(f).length) tx.set(doc(db, 'events', eid, 'entries', String(n)), { uid: u.uid, f, t: serverTimestamp() });
+      return true;
     });
   }
   $('#bProxy').onclick = async () => {
     try {
-      for (let k = 0; k < 30; k++) { const n = randInt(1, MAX); if (await regTicket(n)) return showNum(n); }
+      for (let k = 0; k < 30; k++) { const n = randInt(1, MAX); if (await regTicket(n, pf())) { clearPf(); return showNum(n); } }
       toast('빈 번호를 찾지 못했습니다. 최대 인원을 확인하세요.');
     } catch (e) { toast('오류: ' + (e.code || e.message)); }
   };
   $('#bManual').onclick = async () => {
     const n = Math.floor(+$('#mNum').value); if (!(n >= 1 && n <= MAX)) return toast(`1~${MAX} 범위의 번호를 입력하세요`);
-    try { if (await regTicket(n)) { toast(`${pad(n)}번 등록 완료`); $('#mNum').value = ''; counts(); } else toast('이미 등록된 번호입니다'); }
+    try { if (await regTicket(n, pf())) { clearPf(); toast(`${pad(n)}번 등록 완료`); $('#mNum').value = ''; counts(); } else toast('이미 등록된 번호입니다'); }
     catch (e) { toast('오류: ' + (e.code || e.message)); }
   };
   function showNum(n) {
@@ -654,13 +749,22 @@ async function manage(eid, u) {
   }
 
   /* 엑셀 저장 */
-  $('#bXlsx').onclick = () => {
-    const rows = [['상품', '구분', '순번', '경품번호', '수령']];
+  $('#bXlsx').onclick = async () => {
+    await getEntries([...S.wins.keys()]);
+    const F = fieldsOf(), rows = [['상품', '구분', '순번', '경품번호', ...F.map(f => f.label), '수령']];
     const rank = { won: 0, reserve: 1, absent: 2 }, lab = { won: '당첨', reserve: '예비', absent: '불참' };
     for (const p of (S.ev.prizes || [])) [...S.wins.values()].filter(w => w.prizeId === p.id).sort((a, b) => rank[a.status] - rank[b.status] || a.order - b.order)
-      .forEach(w => rows.push([p.name, lab[w.status] + (w.promoted ? '(승계)' : ''), w.order, pad(w.n), w.claimed ? '수령' : '']));
+      .forEach(w => { const e = S.entries.get(w.n) || {}; rows.push([p.name, lab[w.status] + (w.promoted ? '(승계)' : ''), w.order, pad(w.n), ...F.map(f => e[f.id] || ''), w.claimed ? '수령' : '']); });
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), '추첨결과');
     XLSX.writeFile(wb, `${S.ev.name}_추첨결과.xlsx`);
+  };
+  $('#bXlsxAll').onclick = async () => {
+    try {
+      const F = fieldsOf(), qs = await getDocs(collection(db, 'events', eid, 'entries')), rows = [['경품번호', ...F.map(f => f.label)]];
+      qs.docs.map(d => ({ n: Number(d.id), f: d.data().f || {} })).sort((a, b) => a.n - b.n).forEach(r => rows.push([pad(r.n), ...F.map(f => r.f[f.id] || '')]));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), '참석자명단');
+      XLSX.writeFile(wb, `${S.ev.name}_참석자명단.xlsx`);
+    } catch (ex) { toast('오류: ' + (ex.code || ex.message)); }
   };
   renderAll(); renderResults(); poolInfo();
 }

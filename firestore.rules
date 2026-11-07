@@ -65,6 +65,24 @@ service cloud.firestore {
         allow delete: if isAdmin(eid);
       }
 
+      // 참석자 입력 정보(소속·이름 등): 본인과 관리자만 조회 가능 (경품번호 문서와 분리 저장)
+      match /entries/{num} {
+        allow get: if signedIn() && (resource == null || resource.data.uid == request.auth.uid || isAdmin(eid));
+        allow list: if isAdmin(eid);
+        allow create: if signedIn() && num.matches('^[1-9][0-9]{0,5}$') && (
+          (
+            request.resource.data.uid == request.auth.uid
+            && request.resource.data.keys().hasOnly(['uid', 'f', 't'])
+            && request.resource.data.f.size() <= 8
+            && request.resource.data.t == request.time
+            && getAfter(/databases/$(database)/documents/events/$(eid)/users/$(request.auth.uid)).data.number == int(num)
+            && get(evPath(eid)).data.checkinOpen == true
+          )
+          || isAdmin(eid)
+        );
+        allow update, delete: if isAdmin(eid);
+      }
+
       // 당첨 결과 (본인 번호 문서만 조회 가능, 목록·쓰기는 관리자만)
       match /wins/{num} {
         allow get: if signedIn();
